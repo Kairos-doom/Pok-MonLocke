@@ -3,7 +3,7 @@ import { supabase } from './supabaseClient';
 import { 
   Shield, Coins, Sparkles, Mail, Dices, 
   ArrowLeftRight, PlusCircle, UserCheck, UserPlus, 
-  LogIn, Briefcase, CheckCircle, Trash2, Edit3, Settings, UserCog, Type, KeyRound
+  LogIn, Briefcase, CheckCircle, Trash2, Edit3, Settings, UserCog, Type, KeyRound, Calendar, Clock, Image as ImageIcon
 } from 'lucide-react';
 
 const ADMIN_MASTER_PASSWORD = "200358#";
@@ -19,7 +19,6 @@ export default function App() {
   const [nameInput, setNameInput] = useState('');
   const [adminPasswordInput, setAdminPasswordInput] = useState('');
 
-  // Estados para cambiar el Nick
   const [isEditingName, setIsEditingName] = useState(false);
   const [newNameInput, setNewNameInput] = useState('');
 
@@ -28,6 +27,7 @@ export default function App() {
   const [inventory, setInventory] = useState([]); 
   const [trades, setTrades] = useState([]);
   const [wheelPrizes, setWheelPrizes] = useState([]);
+  const [events, setEvents] = useState([]);
 
   const [activeTab, setActiveTab] = useState('shop');
   const [spinning, setSpinning] = useState(false);
@@ -39,8 +39,19 @@ export default function App() {
   const [newWheelPrize, setNewWheelPrize] = useState({ name: '', coins: 50 });
   const [newTrade, setNewTrade] = useState({ offeredPokemon: '', level: 50, requestedItem: '' });
 
+  // Estado para la creación de Eventos (Solo Admins)
+  const [newEvent, setNewEvent] = useState({ title: '', description: '', imageUrl: '', durationMinutes: 60 });
+  
+  // Timer actualizador en tiempo real
+  const [currentTime, setCurrentTime] = useState(Date.now());
+
   useEffect(() => {
     fetchData();
+
+    // Intervalo para actualizar los timers de los eventos cada segundo
+    const timerInterval = setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 1000);
 
     const channel = supabase
       .channel('schema-db-changes')
@@ -50,6 +61,7 @@ export default function App() {
       .subscribe();
 
     return () => {
+      clearInterval(timerInterval);
       supabase.removeChannel(channel);
     };
   }, []);
@@ -73,6 +85,9 @@ export default function App() {
 
       const { data: wp } = await supabase.from('wheel_config').select('*');
       if (wp) setWheelPrizes(wp);
+
+      const { data: ev } = await supabase.from('events').select('*');
+      if (ev) setEvents(ev);
     } catch (e) {
       console.error('Error al sincronizar:', e);
     }
@@ -337,6 +352,41 @@ export default function App() {
     fetchData();
   }
 
+  // 🚨 FUNCIONES PARA CREAR Y ELIMINAR EVENTOS (Solo Admin)
+  async function handleCreateEvent(e) {
+    e.preventDefault();
+    if (!newEvent.title || !newEvent.durationMinutes) return alert("Completa los campos obligatorios del evento.");
+
+    const durationMs = Number(newEvent.durationMinutes) * 60 * 1000;
+    const expiresAt = new Date(Date.now() + durationMs).toISOString();
+
+    const eventData = {
+      title: newEvent.title,
+      description: newEvent.description,
+      image_url: newEvent.imageUrl || '',
+      duration_minutes: Number(newEvent.durationMinutes),
+      expires_at: expiresAt
+    };
+
+    const { error } = await supabase.from('events').insert([eventData]);
+    if (error) {
+      alert("❌ Error al crear el evento: " + error.message);
+      return;
+    }
+
+    setNewEvent({ title: '', description: '', imageUrl: '', durationMinutes: 60 });
+    alert("🚨 ¡Nuevo evento creado y anunciado a todos los jugadores!");
+    setActiveTab('events');
+    fetchData();
+  }
+
+  async function handleDeleteEvent(eventId) {
+    if (confirm("¿Estás seguro de finalizar y eliminar este evento?")) {
+      await supabase.from('events').delete().eq('id', eventId);
+      fetchData();
+    }
+  }
+
   function spinWheel() {
     if (currentUser.coins < 20 || spinning || wheelPrizes.length === 0) return;
     setSpinning(true);
@@ -492,6 +542,10 @@ export default function App() {
           </button>
           <button onClick={() => setActiveTab('wheel')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${activeTab === 'wheel' ? 'bg-yellow-500 text-slate-950 shadow-md' : 'bg-slate-800 hover:bg-slate-700'}`}>Ruleta</button>
           <button onClick={() => setActiveTab('trades')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${activeTab === 'trades' ? 'bg-yellow-500 text-slate-950 shadow-md' : 'bg-slate-800 hover:bg-slate-700'}`}>Intercambios</button>
+          <button onClick={() => setActiveTab('events')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 relative ${activeTab === 'events' ? 'bg-yellow-500 text-slate-950 shadow-md' : 'bg-slate-800 hover:bg-slate-700'}`}>
+            <Calendar className="w-3.5 h-3.5" /> Eventos
+            {events.length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] px-1.5 py-0.2 rounded-full animate-pulse">{events.length}</span>}
+          </button>
           {currentUser.role === 'admin' && (
             <>
               <button onClick={() => { setEditingCardId(null); setNewCard({ title: '', type: 'Pokémon', effect: '', price: 100, stock: 5, imageUrl: '' }); setActiveTab('creator'); }} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${activeTab === 'creator' ? 'bg-yellow-500 text-slate-950 shadow-md' : 'bg-slate-800 hover:bg-slate-700'}`}>+ Carta</button>
@@ -612,6 +666,149 @@ export default function App() {
                 ))}
               </div>
             )}
+          </section>
+        )}
+
+        {/* 🚨 PESTAÑA DE EVENTOS (Visible para todos, creación exclusiva de Admin) */}
+        {activeTab === 'events' && (
+          <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-2xl font-black text-yellow-400 flex items-center gap-2">
+                  <Calendar className="w-6 h-6" /> Eventos Activos del Torneo
+                </h2>
+                <p className="text-xs text-slate-400 mt-1">Entérate de los eventos especiales y revisa cuánto tiempo queda.</p>
+              </div>
+
+              {currentUser.role === 'admin' && (
+                <button 
+                  onClick={() => setActiveTab('create-event')} 
+                  className="bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs uppercase shadow-md flex items-center gap-2"
+                >
+                  <PlusCircle className="w-4 h-4" /> Crear Nuevo Evento
+                </button>
+              )}
+            </div>
+
+            {events.length === 0 ? (
+              <div className="bg-slate-900 border border-slate-800 p-12 rounded-2xl text-center shadow-lg">
+                <Calendar className="w-12 h-12 text-slate-600 mx-auto mb-3" />
+                <p className="text-slate-400 text-sm">No hay eventos activos en este momento.</p>
+                <p className="text-xs text-slate-500 mt-1">Los administradores notificarán cuando inicie uno nuevo.</p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                {events.map(ev => {
+                  const timeLeft = new Date(ev.expires_at).getTime() - currentTime;
+                  const isExpired = timeLeft <= 0;
+                  
+                  const hours = Math.max(0, Math.floor((timeLeft % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)));
+                  const minutes = Math.max(0, Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60)));
+                  const seconds = Math.max(0, Math.floor((timeLeft % (1000 * 60)) / 1000));
+
+                  return (
+                    <div key={ev.id} className="bg-slate-900 border border-yellow-500/30 rounded-2xl overflow-hidden shadow-2xl flex flex-col justify-between">
+                      {ev.image_url && (
+                        <div className="h-48 w-full bg-slate-950 overflow-hidden flex items-center justify-center border-b border-slate-800">
+                          <img src={ev.image_url} alt={ev.title} className="w-full h-full object-cover" />
+                        </div>
+                      )}
+                      <div className="p-6 flex-1 flex flex-col justify-between">
+                        <div>
+                          <div className="flex items-center justify-between mb-2">
+                            <span className="text-[10px] font-bold px-2.5 py-1 rounded-full uppercase bg-yellow-500/10 text-yellow-400 border border-yellow-500/30">
+                              📢 Evento Oficial
+                            </span>
+                            <div className="flex items-center gap-1.5 bg-slate-950 px-3 py-1 rounded-lg border border-slate-800 text-xs font-mono text-yellow-400">
+                              <Clock className="w-3.5 h-3.5 text-yellow-400 animate-spin" />
+                              {isExpired ? '¡Finalizado!' : `${hours}h ${minutes}m ${seconds}s`}
+                            </div>
+                          </div>
+                          <h3 className="text-xl font-bold text-white mt-2">{ev.title}</h3>
+                          <p className="text-xs text-slate-300 mt-2 whitespace-pre-wrap leading-relaxed">{ev.description}</p>
+                        </div>
+
+                        {currentUser.role === 'admin' && (
+                          <div className="mt-6 pt-4 border-t border-slate-800 flex justify-end">
+                            <button 
+                              onClick={() => handleDeleteEvent(ev.id)}
+                              className="bg-red-600 hover:bg-red-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 transition shadow-sm"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" /> Eliminar Evento
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Formulario exclusivo para crear eventos (Solo Admins) */}
+        {activeTab === 'create-event' && currentUser.role === 'admin' && (
+          <section className="max-w-xl mx-auto bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-2xl shadow-xl">
+            <h2 className="text-xl font-bold text-yellow-400 mb-4 flex items-center gap-2">
+              <Calendar className="w-5 h-5" /> Crear y Anunciar Evento
+            </h2>
+            <form onSubmit={handleCreateEvent} className="space-y-4">
+              <div>
+                <label className="text-xs text-slate-400 uppercase font-semibold">Título del Evento</label>
+                <input 
+                  type="text" 
+                  required 
+                  value={newEvent.title} 
+                  onChange={e => setNewEvent({ ...newEvent, title: e.target.value })} 
+                  placeholder="Ej. ¡Hora de Caza Shiny!" 
+                  className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400" 
+                />
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 uppercase font-semibold">URL de la Imagen</label>
+                <div className="relative">
+                  <input 
+                    type="text" 
+                    value={newEvent.imageUrl} 
+                    onChange={e => setNewEvent({ ...newEvent, imageUrl: e.target.value })} 
+                    placeholder="https://..." 
+                    className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400" 
+                  />
+                  <ImageIcon className="w-4 h-4 text-slate-500 absolute right-3 top-4" />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 uppercase font-semibold">Duración (en Minutos)</label>
+                <input 
+                  type="number" 
+                  required 
+                  min="1" 
+                  value={newEvent.durationMinutes} 
+                  onChange={e => setNewEvent({ ...newEvent, durationMinutes: e.target.value })} 
+                  placeholder="60" 
+                  className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400" 
+                />
+                <p className="text-[10px] text-slate-500 mt-1">El temporizador se calculará automáticamente con este valor a partir de ahora.</p>
+              </div>
+              <div>
+                <label className="text-xs text-slate-400 uppercase font-semibold">Descripción / Reglas del Evento</label>
+                <textarea 
+                  value={newEvent.description} 
+                  onChange={e => setNewEvent({ ...newEvent, description: e.target.value })} 
+                  placeholder="Explica de qué trata el evento, recompensas o instrucciones..." 
+                  className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400 h-28" 
+                />
+              </div>
+              <div className="flex gap-3 pt-2">
+                <button type="submit" className="flex-1 bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold py-3 rounded-lg transition uppercase text-xs shadow-md">
+                  🚀 Publicar y Anunciar
+                </button>
+                <button type="button" onClick={() => setActiveTab('events')} className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-4 py-3 rounded-lg transition text-xs">
+                  Cancelar
+                </button>
+              </div>
+            </form>
           </section>
         )}
 
