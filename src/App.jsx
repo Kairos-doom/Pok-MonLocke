@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { supabase } from './supabaseClient';
 import { 
   Shield, Coins, Sparkles, Mail, Dices, 
-  ArrowLeftRight, PlusCircle, UserCheck, UserPlus, 
+  ArrowLeftRight, PlusCircle, UserCheck, 
   LogIn, Briefcase, CheckCircle, Trash2, Edit3, Settings, UserCog, Type, KeyRound, Calendar, Clock, Image as ImageIcon
 } from 'lucide-react';
 
@@ -30,25 +30,25 @@ export default function App() {
   const [events, setEvents] = useState([]);
 
   const [activeTab, setActiveTab] = useState('shop');
+  
+  // Estados para las 3 Ruletas (objects, gym, sections)
+  const [selectedWheelType, setSelectedWheelType] = useState('objects');
   const [spinning, setSpinning] = useState(false);
   const [wheelResult, setWheelResult] = useState(null);
 
   const [editingCardId, setEditingCardId] = useState(null);
   const [newCard, setNewCard] = useState({ title: '', type: 'Pokémon', effect: '', price: 100, stock: 5, imageUrl: '' });
 
-  const [newWheelPrize, setNewWheelPrize] = useState({ name: '', coins: 50 });
+  // Nuevo premio de ruleta con tipo y peso
+  const [newWheelPrize, setNewWheelPrize] = useState({ name: '', coins: 50, wheelType: 'objects', weight: 10 });
   const [newTrade, setNewTrade] = useState({ offeredPokemon: '', level: 50, requestedItem: '' });
 
-  // Estado para la creación de Eventos (Solo Admins)
   const [newEvent, setNewEvent] = useState({ title: '', description: '', imageUrl: '', durationMinutes: 60 });
-  
-  // Timer actualizador en tiempo real
   const [currentTime, setCurrentTime] = useState(Date.now());
 
   useEffect(() => {
     fetchData();
 
-    // Intervalo para actualizar los timers de los eventos cada segundo
     const timerInterval = setInterval(() => {
       setCurrentTime(Date.now());
     }, 1000);
@@ -98,26 +98,14 @@ export default function App() {
     if (!emailInput || !nameInput) return alert("Por favor ingresa tu apodo y correo.");
 
     const formattedEmail = emailInput.trim().toLowerCase();
-
-    const { data: existingUser } = await supabase
-      .from('users')
-      .select('*')
-      .eq('email', formattedEmail)
-      .maybeSingle();
+    const { data: existingUser } = await supabase.from('users').select('*').eq('email', formattedEmail).maybeSingle();
 
     if (existingUser) {
       setCurrentUser(existingUser);
       return;
     }
 
-    const newUser = {
-      email: formattedEmail,
-      name: nameInput.trim(),
-      role: 'player',
-      status: 'pending',
-      coins: 100
-    };
-
+    const newUser = { email: formattedEmail, name: nameInput.trim(), role: 'player', status: 'pending', coins: 100 };
     const { data: created, error } = await supabase.from('users').insert([newUser]).select().single();
 
     if (error) {
@@ -138,40 +126,14 @@ export default function App() {
     }
 
     const formattedEmail = emailInput.trim().toLowerCase();
-
-    const { data: existingUser } = await supabase
-      .from('users')
-      .select('*')
-      .eq('email', formattedEmail)
-      .maybeSingle();
+    const { data: existingUser } = await supabase.from('users').select('*').eq('email', formattedEmail).maybeSingle();
 
     if (existingUser) {
-      const { data: updated, error } = await supabase
-        .from('users')
-        .update({ role: 'admin', status: 'approved' })
-        .eq('id', existingUser.id)
-        .select()
-        .single();
-
-      if (error) {
-        alert("❌ Error al actualizar admin: " + error.message);
-        return;
-      }
+      const { data: updated } = await supabase.from('users').update({ role: 'admin', status: 'approved' }).eq('id', existingUser.id).select().single();
       setCurrentUser(updated || { ...existingUser, role: 'admin', status: 'approved' });
     } else {
-      const newAdmin = {
-        email: formattedEmail,
-        name: nameInput.trim() || 'Ezekiel (Admin)',
-        role: 'admin',
-        status: 'approved',
-        coins: 999
-      };
-
-      const { data: created, error } = await supabase.from('users').insert([newAdmin]).select().single();
-      if (error) {
-        alert("❌ Error al crear admin: " + error.message);
-        return;
-      }
+      const newAdmin = { email: formattedEmail, name: nameInput.trim() || 'Ezekiel (Admin)', role: 'admin', status: 'approved', coins: 999 };
+      const { data: created } = await supabase.from('users').insert([newAdmin]).select().single();
       setCurrentUser(created || newAdmin);
     }
 
@@ -184,15 +146,7 @@ export default function App() {
     if (!newNameInput.trim()) return alert("El apodo no puede estar vacío.");
 
     const updatedName = newNameInput.trim();
-    const { error } = await supabase
-      .from('users')
-      .update({ name: updatedName })
-      .eq('id', currentUser.id);
-
-    if (error) {
-      alert("❌ Error al actualizar el apodo: " + error.message);
-      return;
-    }
+    await supabase.from('users').update({ name: updatedName }).eq('id', currentUser.id);
 
     setCurrentUser(prev => ({ ...prev, name: updatedName }));
     setIsEditingName(false);
@@ -226,12 +180,7 @@ export default function App() {
       await supabase.from('inventory').update({ quantity: existingItem.quantity + 1 }).eq('id', existingItem.id);
     } else {
       await supabase.from('inventory').insert([{
-        user_id: currentUser.id,
-        card_id: card.id,
-        card_title: card.title,
-        card_type: card.type,
-        card_effect: card.effect,
-        quantity: 1
+        user_id: currentUser.id, card_id: card.id, card_title: card.title, card_type: card.type, card_effect: card.effect, quantity: 1
       }]);
     }
 
@@ -278,12 +227,8 @@ export default function App() {
     if (!newCard.title || newCard.price <= 0) return;
 
     const cardData = {
-      title: newCard.title,
-      type: newCard.type,
-      effect: newCard.effect,
-      price: Number(newCard.price),
-      stock: Number(newCard.stock),
-      image_url: newCard.imageUrl || 'https://via.placeholder.com/150'
+      title: newCard.title, type: newCard.type, effect: newCard.effect,
+      price: Number(newCard.price), stock: Number(newCard.stock), image_url: newCard.imageUrl || 'https://via.placeholder.com/150'
     };
 
     if (editingCardId) {
@@ -300,14 +245,7 @@ export default function App() {
 
   function startEditCard(card) {
     setEditingCardId(card.id);
-    setNewCard({
-      title: card.title,
-      type: card.type,
-      effect: card.effect || '',
-      price: card.price,
-      stock: card.stock,
-      imageUrl: card.image_url || ''
-    });
+    setNewCard({ title: card.title, type: card.type, effect: card.effect || '', price: card.price, stock: card.stock, imageUrl: card.image_url || '' });
     setActiveTab('creator');
   }
 
@@ -318,17 +256,21 @@ export default function App() {
     }
   }
 
+  // Ruleta: Agregar premio con peso y tipo
   async function handleAddWheelPrize(e) {
     e.preventDefault();
     if (!newWheelPrize.name) return;
 
     await supabase.from('wheel_config').insert([{
       name: newWheelPrize.name,
-      reward_coins: Number(newWheelPrize.coins)
+      reward_coins: Number(newWheelPrize.coins),
+      wheel_type: newWheelPrize.wheelType,
+      weight: Number(newWheelPrize.weight) || 10
     }]);
 
-    setNewWheelPrize({ name: '', coins: 50 });
+    setNewWheelPrize({ name: '', coins: 50, wheelType: 'objects', weight: 10 });
     fetchData();
+    alert("✨ ¡Premio agregado a la ruleta con éxito!");
   }
 
   async function handleDeleteWheelPrize(id) {
@@ -336,67 +278,90 @@ export default function App() {
     fetchData();
   }
 
+  // Intercambios
   async function handleCreateTrade(e) {
     e.preventDefault();
     if (!newTrade.offeredPokemon) return;
 
     await supabase.from('trades').insert([{
-      user_email: currentUser.email,
-      offered_pokemon: newTrade.offeredPokemon,
-      level: Number(newTrade.level),
-      requested_item: newTrade.requestedItem,
-      status: 'open'
+      user_email: currentUser.email, offered_pokemon: newTrade.offeredPokemon, level: Number(newTrade.level), requested_item: newTrade.requestedItem, status: 'open'
     }]);
 
     setNewTrade({ offeredPokemon: '', level: 50, requestedItem: '' });
     fetchData();
   }
 
-  // 🚨 FUNCIONES PARA CREAR Y ELIMINAR EVENTOS (Solo Admin)
+  // Aceptar intercambio y eliminarlo para que desaparezca correctamente
+  async function handleAcceptTrade(tradeId) {
+    if (!confirm("¿Estás seguro de aceptar este intercambio? Se completará y eliminará de las ofertas activas.")) return;
+    
+    const { error } = await supabase.from('trades').delete().eq('id', tradeId);
+    if (error) {
+      alert("❌ Error al aceptar el intercambio: " + error.message);
+      return;
+    }
+    alert("✅ ¡Intercambio aceptado con éxito!");
+    fetchData();
+  }
+
+  // Eventos
   async function handleCreateEvent(e) {
     e.preventDefault();
-    if (!newEvent.title || !newEvent.durationMinutes) return alert("Completa los campos obligatorios del evento.");
+    if (!newEvent.title || !newEvent.durationMinutes) return alert("Completa los campos obligatorios.");
 
     const durationMs = Number(newEvent.durationMinutes) * 60 * 1000;
     const expiresAt = new Date(Date.now() + durationMs).toISOString();
 
-    const eventData = {
-      title: newEvent.title,
-      description: newEvent.description,
-      image_url: newEvent.imageUrl || '',
-      duration_minutes: Number(newEvent.durationMinutes),
-      expires_at: expiresAt
-    };
+    const { error } = await supabase.from('events').insert([{
+      title: newEvent.title, description: newEvent.description, image_url: newEvent.imageUrl || '', duration_minutes: Number(newEvent.durationMinutes), expires_at: expiresAt
+    }]);
 
-    const { error } = await supabase.from('events').insert([eventData]);
     if (error) {
       alert("❌ Error al crear el evento: " + error.message);
       return;
     }
 
     setNewEvent({ title: '', description: '', imageUrl: '', durationMinutes: 60 });
-    alert("🚨 ¡Nuevo evento creado y anunciado a todos los jugadores!");
+    alert("🚨 ¡Nuevo evento creado con éxito!");
     setActiveTab('events');
     fetchData();
   }
 
   async function handleDeleteEvent(eventId) {
-    if (confirm("¿Estás seguro de finalizar y eliminar este evento?")) {
+    if (confirm("¿Finalizar y eliminar este evento?")) {
       await supabase.from('events').delete().eq('id', eventId);
       fetchData();
     }
   }
 
+  // Girar la ruleta seleccionada basándose en pesos (probabilidades)
   function spinWheel() {
-    if (currentUser.coins < 20 || spinning || wheelPrizes.length === 0) return;
+    const currentPrizes = wheelPrizes.filter(p => (p.wheel_type || 'objects') === selectedWheelType);
+    if (currentUser.coins < 20 || spinning || currentPrizes.length === 0) return;
+
     setSpinning(true);
     setWheelResult(null);
     updateUserCoins(currentUser.id, -20);
 
     setTimeout(() => {
-      const prize = wheelPrizes[Math.floor(Math.random() * wheelPrizes.length)];
-      if (prize.reward_coins > 0) updateUserCoins(currentUser.id, prize.reward_coins);
-      setWheelResult(prize.name);
+      // Cálculo basado en pesos (probabilidades personalizadas)
+      const totalWeight = currentPrizes.reduce((sum, p) => sum + (Number(p.weight) || 10), 0);
+      let randomNum = Math.random() * totalWeight;
+      let selectedPrize = currentPrizes[0];
+
+      for (let p of currentPrizes) {
+        const w = Number(p.weight) || 10;
+        if (randomNum < w) {
+          selectedPrize = p;
+          break;
+        }
+        randomNum -= w;
+      }
+
+      if (selectedPrize.reward_coins > 0) {
+        updateUserCoins(currentUser.id, selectedPrize.reward_coins);
+      }
+      setWheelResult(selectedPrize.name);
       setSpinning(false);
     }, 2000);
   }
@@ -413,20 +378,10 @@ export default function App() {
           </div>
 
           <div className="grid grid-cols-2 gap-2 mb-6 bg-slate-950 p-1.5 rounded-xl border border-slate-800">
-            <button
-              onClick={() => setAuthView('player')}
-              className={`py-3 text-xs font-bold rounded-lg transition flex flex-col items-center justify-center gap-1 ${
-                authView === 'player' ? 'bg-yellow-500 text-slate-950 shadow-lg' : 'text-slate-400 hover:text-white bg-slate-900'
-              }`}
-            >
+            <button onClick={() => setAuthView('player')} className={`py-3 text-xs font-bold rounded-lg transition flex flex-col items-center justify-center gap-1 ${authView === 'player' ? 'bg-yellow-500 text-slate-950 shadow-lg' : 'text-slate-400 hover:text-white bg-slate-900'}`}>
               <LogIn className="w-4 h-4" /> Entrar Jugador
             </button>
-            <button
-              onClick={() => setAuthView('admin')}
-              className={`py-3 text-xs font-bold rounded-lg transition flex flex-col items-center justify-center gap-1 ${
-                authView === 'admin' ? 'bg-purple-600 text-white shadow-lg' : 'text-slate-400 hover:text-white bg-slate-900'
-              }`}
-            >
+            <button onClick={() => setAuthView('admin')} className={`py-3 text-xs font-bold rounded-lg transition flex flex-col items-center justify-center gap-1 ${authView === 'admin' ? 'bg-purple-600 text-white shadow-lg' : 'text-slate-400 hover:text-white bg-slate-900'}`}>
               <Shield className="w-4 h-4" /> Acceso Admin
             </button>
           </div>
@@ -435,29 +390,13 @@ export default function App() {
             <form onSubmit={handlePlayerAuth} className="space-y-4">
               <div>
                 <label className="text-xs text-slate-400 font-semibold uppercase">Apodo / Nombre</label>
-                <input 
-                  type="text" 
-                  required 
-                  value={nameInput} 
-                  onChange={(e) => setNameInput(e.target.value)} 
-                  placeholder="Ej. Red" 
-                  className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:outline-none focus:border-yellow-400 text-sm" 
-                />
+                <input type="text" required value={nameInput} onChange={(e) => setNameInput(e.target.value)} placeholder="Ej. Red" className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:outline-none focus:border-yellow-400 text-sm" />
               </div>
               <div>
                 <label className="text-xs text-slate-400 font-semibold uppercase">Correo Electrónico</label>
-                <input 
-                  type="email" 
-                  required 
-                  value={emailInput} 
-                  onChange={(e) => setEmailInput(e.target.value)} 
-                  placeholder="tu-correo@ejemplo.com" 
-                  className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:outline-none focus:border-yellow-400 text-sm" 
-                />
+                <input type="email" required value={emailInput} onChange={(e) => setEmailInput(e.target.value)} placeholder="tu-correo@ejemplo.com" className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:outline-none focus:border-yellow-400 text-sm" />
               </div>
-              <button type="submit" className="w-full bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold py-3 rounded-lg transition text-sm uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg">
-                Entrar al Torneo
-              </button>
+              <button type="submit" className="w-full bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold py-3 rounded-lg transition text-sm uppercase tracking-wider shadow-lg">Entrar al Torneo</button>
             </form>
           )}
 
@@ -465,30 +404,16 @@ export default function App() {
             <form onSubmit={handleAdminAuth} className="space-y-4 border border-purple-500/40 p-4 rounded-xl bg-purple-950/20">
               <div>
                 <label className="text-xs text-purple-300 font-semibold uppercase">Correo de Admin</label>
-                <input 
-                  type="email" 
-                  required 
-                  value={emailInput} 
-                  onChange={(e) => setEmailInput(e.target.value)} 
-                  placeholder="antimanezekiel@gmail.com" 
-                  className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:outline-none focus:border-purple-400 text-sm" 
-                />
+                <input type="email" required value={emailInput} onChange={(e) => setEmailInput(e.target.value)} placeholder="antimanezekiel@gmail.com" className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:outline-none focus:border-purple-400 text-sm" />
               </div>
               <div>
                 <label className="text-xs text-purple-300 font-semibold uppercase">Clave Maestra (200358#)</label>
                 <div className="relative">
-                  <input 
-                    type="password" 
-                    required 
-                    value={adminPasswordInput} 
-                    onChange={(e) => setAdminPasswordInput(e.target.value)} 
-                    placeholder="••••••••" 
-                    className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:outline-none focus:border-purple-400 text-sm" 
-                  />
+                  <input type="password" required value={adminPasswordInput} onChange={(e) => setAdminPasswordInput(e.target.value)} placeholder="••••••••" className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:outline-none focus:border-purple-400 text-sm" />
                   <KeyRound className="w-4 h-4 text-purple-400 absolute right-3 top-4" />
                 </div>
               </div>
-              <button type="submit" className="w-full bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 rounded-lg transition text-sm uppercase tracking-wider flex items-center justify-center gap-2 shadow-lg">
+              <button type="submit" className="w-full bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 rounded-lg transition text-sm uppercase tracking-wider shadow-lg flex items-center justify-center gap-2">
                 <Shield className="w-4 h-4" /> Entrar como Administrador
               </button>
             </form>
@@ -505,7 +430,6 @@ export default function App() {
           <Mail className="w-16 h-16 text-yellow-400 mx-auto mb-4 animate-bounce" />
           <h2 className="text-2xl font-bold">Acceso Pendiente</h2>
           <p className="text-slate-400 text-sm mt-2">El correo <span className="text-yellow-300 font-mono">{currentUser.email}</span> ha sido registrado.</p>
-          <p className="text-slate-400 text-xs mt-2 bg-slate-950 p-3 rounded-lg border border-slate-800">Ezekiel debe aprobar tu cuenta desde el Panel Admin.</p>
           <button onClick={() => setCurrentUser(null)} className="mt-6 text-xs text-slate-500 underline hover:text-white">Cerrar sesión</button>
         </div>
       </div>
@@ -522,12 +446,7 @@ export default function App() {
           
           <div className="flex items-center gap-2 bg-slate-950 px-3 py-1 rounded-lg border border-slate-800">
             <span className="text-xs text-slate-300 font-bold">👤 {currentUser.name}</span>
-            <button 
-              onClick={() => { setNewNameInput(currentUser.name); setIsEditingName(!isEditingName); }}
-              className="text-xs text-yellow-400 hover:underline font-semibold ml-1"
-            >
-              Cambiar Nick
-            </button>
+            <button onClick={() => { setNewNameInput(currentUser.name); setIsEditingName(!isEditingName); }} className="text-xs text-yellow-400 hover:underline font-semibold ml-1">Cambiar Nick</button>
           </div>
 
           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase border ${currentUser.role === 'admin' ? 'bg-purple-950 text-purple-300 border-purple-800' : 'bg-blue-950 text-blue-300 border-blue-800'}`}>
@@ -540,7 +459,7 @@ export default function App() {
           <button onClick={() => setActiveTab('inventory')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 ${activeTab === 'inventory' ? 'bg-yellow-500 text-slate-950 shadow-md' : 'bg-slate-800 hover:bg-slate-700'}`}>
             <Briefcase className="w-3.5 h-3.5" /> Mochila ({myItems.length})
           </button>
-          <button onClick={() => setActiveTab('wheel')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${activeTab === 'wheel' ? 'bg-yellow-500 text-slate-950 shadow-md' : 'bg-slate-800 hover:bg-slate-700'}`}>Ruleta</button>
+          <button onClick={() => setActiveTab('wheel')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${activeTab === 'wheel' ? 'bg-yellow-500 text-slate-950 shadow-md' : 'bg-slate-800 hover:bg-slate-700'}`}>Ruletas (3)</button>
           <button onClick={() => setActiveTab('trades')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${activeTab === 'trades' ? 'bg-yellow-500 text-slate-950 shadow-md' : 'bg-slate-800 hover:bg-slate-700'}`}>Intercambios</button>
           <button onClick={() => setActiveTab('events')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 relative ${activeTab === 'events' ? 'bg-yellow-500 text-slate-950 shadow-md' : 'bg-slate-800 hover:bg-slate-700'}`}>
             <Calendar className="w-3.5 h-3.5" /> Eventos
@@ -567,19 +486,9 @@ export default function App() {
         <div className="bg-slate-900 border-b border-yellow-500/30 px-4 sm:px-6 py-3 flex items-center justify-center">
           <form onSubmit={handleUpdateNickname} className="flex flex-wrap items-center justify-center gap-2">
             <span className="text-xs font-bold text-yellow-400">Nuevo Apodo:</span>
-            <input 
-              type="text" 
-              required 
-              value={newNameInput} 
-              onChange={e => setNewNameInput(e.target.value)} 
-              className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-yellow-400"
-            />
-            <button type="submit" className="bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold text-xs px-3 py-1.5 rounded-lg transition">
-              Guardar
-            </button>
-            <button type="button" onClick={() => setIsEditingName(false)} className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-lg transition">
-              Cancelar
-            </button>
+            <input type="text" required value={newNameInput} onChange={e => setNewNameInput(e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-yellow-400" />
+            <button type="submit" className="bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold text-xs px-3 py-1.5 rounded-lg transition">Guardar</button>
+            <button type="button" onClick={() => setIsEditingName(false)} className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-lg transition">Cancelar</button>
           </form>
         </div>
       )}
@@ -612,13 +521,7 @@ export default function App() {
                       <div className="mt-6 flex items-center justify-between border-t border-slate-800 pt-4">
                         <span className="font-bold text-base sm:text-lg text-yellow-400">{card.price} Pts</span>
                         <div className="flex gap-2">
-                          <button 
-                            onClick={() => handleBuyCard(card)}
-                            disabled={currentUser.coins < card.price || card.stock <= 0} 
-                            className="bg-yellow-500 hover:bg-yellow-400 disabled:bg-slate-800 disabled:text-slate-600 text-slate-950 text-xs font-bold px-4 py-2 rounded-lg transition shadow-md"
-                          >
-                            Comprar
-                          </button>
+                          <button onClick={() => handleBuyCard(card)} disabled={currentUser.coins < card.price || card.stock <= 0} className="bg-yellow-500 hover:bg-yellow-400 disabled:bg-slate-800 disabled:text-slate-600 text-slate-950 text-xs font-bold px-4 py-2 rounded-lg transition shadow-md">Comprar</button>
                           {currentUser.role === 'admin' && (
                             <>
                               <button onClick={() => startEditCard(card)} className="bg-blue-600 hover:bg-blue-500 p-2 rounded-lg text-white"><Edit3 className="w-3.5 h-3.5" /></button>
@@ -669,23 +572,97 @@ export default function App() {
           </section>
         )}
 
-        {/* 🚨 PESTAÑA DE EVENTOS (Visible para todos, creación exclusiva de Admin) */}
+        {/* 🎡 LAS 3 RULETAS CON SELECCIÓN */}
+        {activeTab === 'wheel' && (
+          <section className="max-w-md mx-auto text-center bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-2xl shadow-xl">
+            <h2 className="text-2xl font-bold text-yellow-400 mb-2 flex items-center justify-center gap-2"><Dices className="w-6 h-6" /> Ruletas del Torneo</h2>
+            <p className="text-xs text-slate-400 mb-4">Costo por giro: <span className="text-yellow-400 font-bold">20 Monedas</span></p>
+
+            {/* Selector de tipo de Ruleta */}
+            <div className="grid grid-cols-3 gap-1.5 mb-6 bg-slate-950 p-1 rounded-xl border border-slate-800">
+              <button onClick={() => setSelectedWheelType('objects')} className={`py-2 text-[11px] font-bold rounded-lg transition ${selectedWheelType === 'objects' ? 'bg-yellow-500 text-slate-950 shadow-md' : 'text-slate-400 hover:text-white'}`}>
+                📦 Objetos
+              </button>
+              <button onClick={() => setSelectedWheelType('gym')} className={`py-2 text-[11px] font-bold rounded-lg transition ${selectedWheelType === 'gym' ? 'bg-yellow-500 text-slate-950 shadow-md' : 'text-slate-400 hover:text-white'}`}>
+                🛡️ Gimnasios
+              </button>
+              <button onClick={() => setSelectedWheelType('sections')} className={`py-2 text-[11px] font-bold rounded-lg transition ${selectedWheelType === 'sections' ? 'bg-yellow-500 text-slate-950 shadow-md' : 'text-slate-400 hover:text-white'}`}>
+                🗺️ Tramos
+              </button>
+            </div>
+
+            <div className={`w-48 h-48 mx-auto mb-6 rounded-full border-8 border-yellow-500 flex items-center justify-center bg-slate-950 shadow-inner transition-transform duration-1000 ${spinning ? 'animate-spin' : ''}`}>
+              <Sparkles className="w-16 h-16 text-yellow-400" />
+            </div>
+
+            {wheelResult && (
+              <div className="bg-slate-950 border border-yellow-500/50 p-4 rounded-xl mb-6 shadow-md">
+                <p className="text-xs text-slate-400">¡Resultado obtenido!</p>
+                <p className="text-lg font-bold text-yellow-400 mt-1">{wheelResult}</p>
+              </div>
+            )}
+
+            <button onClick={spinWheel} disabled={spinning || currentUser.coins < 20} className="w-full bg-yellow-500 hover:bg-yellow-400 disabled:bg-slate-800 disabled:text-slate-600 text-slate-950 font-bold py-3 rounded-lg transition uppercase text-sm shadow-md">
+              {spinning ? 'Girando ruleta...' : `Girar Ruleta (${selectedWheelType.toUpperCase()})`}
+            </button>
+          </section>
+        )}
+
+        {/* 🤝 INTERCAMBIOS (Al aceptar ahora se elimina correctamente) */}
+        {activeTab === 'trades' && (
+          <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-lg">
+              <h3 className="font-bold text-lg mb-4 text-yellow-400 flex items-center gap-2"><ArrowLeftRight className="w-5 h-5" /> Ofrecer Pokémon</h3>
+              <form onSubmit={handleCreateTrade} className="space-y-4">
+                <div>
+                  <label className="text-xs text-slate-400 uppercase font-semibold">Pokémon Ofrecido</label>
+                  <input type="text" required placeholder="Ej. Lucario" value={newTrade.offeredPokemon} onChange={e => setNewTrade({ ...newTrade, offeredPokemon: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400" />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 uppercase font-semibold">Nivel</label>
+                  <input type="number" value={newTrade.level} onChange={e => setNewTrade({ ...newTrade, level: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400" />
+                </div>
+                <div>
+                  <label className="text-xs text-slate-400 uppercase font-semibold">Pido a cambio</label>
+                  <input type="text" required placeholder="Ej. Objeto Revivir" value={newTrade.requestedItem} onChange={e => setNewTrade({ ...newTrade, requestedItem: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400" />
+                </div>
+                <button type="submit" className="w-full bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold py-3 rounded-lg transition text-xs uppercase shadow-md">Publicar</button>
+              </form>
+            </div>
+
+            <div className="md:col-span-2 bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-lg">
+              <h3 className="font-bold text-lg mb-4 text-slate-200">Ofertas Publicadas</h3>
+              {trades.length === 0 ? (
+                <p className="text-slate-500 text-xs py-8 text-center">No hay intercambios activos.</p>
+              ) : (
+                <div className="space-y-3">
+                  {trades.map(trade => (
+                    <div key={trade.id} className="bg-slate-950 border border-slate-800 p-4 rounded-lg flex items-center justify-between shadow-sm">
+                      <div>
+                        <span className="text-[10px] text-slate-500">{trade.user_email}</span>
+                        <p className="font-bold text-yellow-400 text-base">{trade.offered_pokemon} <span className="text-xs text-slate-400">(Nv. {trade.level})</span></p>
+                        <p className="text-xs text-slate-300 mt-1">Busca: <span className="text-slate-100 font-semibold">{trade.requested_item}</span></p>
+                      </div>
+                      <button onClick={() => handleAcceptTrade(trade.id)} className="bg-emerald-600 hover:bg-emerald-500 text-white text-xs px-3 py-2 rounded-lg font-bold transition shadow-sm">Aceptar</button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </section>
+        )}
+
+        {/* 📢 EVENTOS */}
         {activeTab === 'events' && (
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div>
-                <h2 className="text-2xl font-black text-yellow-400 flex items-center gap-2">
-                  <Calendar className="w-6 h-6" /> Eventos Activos del Torneo
-                </h2>
-                <p className="text-xs text-slate-400 mt-1">Entérate de los eventos especiales y revisa cuánto tiempo queda.</p>
+                <h2 className="text-2xl font-black text-yellow-400 flex items-center gap-2"><Calendar className="w-6 h-6" /> Eventos Activos</h2>
+                <p className="text-xs text-slate-400 mt-1">Revisa los eventos especiales y temporizadores activos.</p>
               </div>
-
               {currentUser.role === 'admin' && (
-                <button 
-                  onClick={() => setActiveTab('create-event')} 
-                  className="bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs uppercase shadow-md flex items-center gap-2"
-                >
-                  <PlusCircle className="w-4 h-4" /> Crear Nuevo Evento
+                <button onClick={() => setActiveTab('create-event')} className="bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs uppercase shadow-md flex items-center gap-2">
+                  <PlusCircle className="w-4 h-4" /> Crear Evento
                 </button>
               )}
             </div>
@@ -693,15 +670,13 @@ export default function App() {
             {events.length === 0 ? (
               <div className="bg-slate-900 border border-slate-800 p-12 rounded-2xl text-center shadow-lg">
                 <Calendar className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-                <p className="text-slate-400 text-sm">No hay eventos activos en este momento.</p>
-                <p className="text-xs text-slate-500 mt-1">Los administradores notificarán cuando inicie uno nuevo.</p>
+                <p className="text-slate-400 text-sm">No hay eventos activos.</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 {events.map(ev => {
                   const timeLeft = new Date(ev.expires_at).getTime() - currentTime;
                   const isExpired = timeLeft <= 0;
-                  
                   const hours = Math.max(0, Math.floor((timeLeft % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60)));
                   const minutes = Math.max(0, Math.floor((timeLeft % (1000 * 60 * 60)) / (1000 * 60)));
                   const seconds = Math.max(0, Math.floor((timeLeft % (1000 * 60)) / 1000));
@@ -716,24 +691,18 @@ export default function App() {
                       <div className="p-6 flex-1 flex flex-col justify-between">
                         <div>
                           <div className="flex items-center justify-between mb-2">
-                            <span className="text-[10px] font-bold px-2.5 py-1 rounded-full uppercase bg-yellow-500/10 text-yellow-400 border border-yellow-500/30">
-                              📢 Evento Oficial
-                            </span>
+                            <span className="text-[10px] font-bold px-2.5 py-1 rounded-full uppercase bg-yellow-500/10 text-yellow-400 border border-yellow-500/30">📢 Evento Oficial</span>
                             <div className="flex items-center gap-1.5 bg-slate-950 px-3 py-1 rounded-lg border border-slate-800 text-xs font-mono text-yellow-400">
-                              <Clock className="w-3.5 h-3.5 text-yellow-400 animate-spin" />
+                              <Clock className="w-3.5 h-3.5 text-yellow-400" />
                               {isExpired ? '¡Finalizado!' : `${hours}h ${minutes}m ${seconds}s`}
                             </div>
                           </div>
                           <h3 className="text-xl font-bold text-white mt-2">{ev.title}</h3>
                           <p className="text-xs text-slate-300 mt-2 whitespace-pre-wrap leading-relaxed">{ev.description}</p>
                         </div>
-
                         {currentUser.role === 'admin' && (
                           <div className="mt-6 pt-4 border-t border-slate-800 flex justify-end">
-                            <button 
-                              onClick={() => handleDeleteEvent(ev.id)}
-                              className="bg-red-600 hover:bg-red-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 transition shadow-sm"
-                            >
+                            <button onClick={() => handleDeleteEvent(ev.id)} className="bg-red-600 hover:bg-red-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 transition shadow-sm">
                               <Trash2 className="w-3.5 h-3.5" /> Eliminar Evento
                             </button>
                           </div>
@@ -747,66 +716,29 @@ export default function App() {
           </div>
         )}
 
-        {/* Formulario exclusivo para crear eventos (Solo Admins) */}
         {activeTab === 'create-event' && currentUser.role === 'admin' && (
           <section className="max-w-xl mx-auto bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-2xl shadow-xl">
-            <h2 className="text-xl font-bold text-yellow-400 mb-4 flex items-center gap-2">
-              <Calendar className="w-5 h-5" /> Crear y Anunciar Evento
-            </h2>
+            <h2 className="text-xl font-bold text-yellow-400 mb-4 flex items-center gap-2"><Calendar className="w-5 h-5" /> Crear y Anunciar Evento</h2>
             <form onSubmit={handleCreateEvent} className="space-y-4">
               <div>
                 <label className="text-xs text-slate-400 uppercase font-semibold">Título del Evento</label>
-                <input 
-                  type="text" 
-                  required 
-                  value={newEvent.title} 
-                  onChange={e => setNewEvent({ ...newEvent, title: e.target.value })} 
-                  placeholder="Ej. ¡Hora de Caza Shiny!" 
-                  className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400" 
-                />
+                <input type="text" required value={newEvent.title} onChange={e => setNewEvent({ ...newEvent, title: e.target.value })} placeholder="Ej. Shiny hunt" className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400" />
               </div>
               <div>
                 <label className="text-xs text-slate-400 uppercase font-semibold">URL de la Imagen</label>
-                <div className="relative">
-                  <input 
-                    type="text" 
-                    value={newEvent.imageUrl} 
-                    onChange={e => setNewEvent({ ...newEvent, imageUrl: e.target.value })} 
-                    placeholder="https://..." 
-                    className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400" 
-                  />
-                  <ImageIcon className="w-4 h-4 text-slate-500 absolute right-3 top-4" />
-                </div>
+                <input type="text" value={newEvent.imageUrl} onChange={e => setNewEvent({ ...newEvent, imageUrl: e.target.value })} placeholder="https://..." className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400" />
               </div>
               <div>
                 <label className="text-xs text-slate-400 uppercase font-semibold">Duración (en Minutos)</label>
-                <input 
-                  type="number" 
-                  required 
-                  min="1" 
-                  value={newEvent.durationMinutes} 
-                  onChange={e => setNewEvent({ ...newEvent, durationMinutes: e.target.value })} 
-                  placeholder="60" 
-                  className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400" 
-                />
-                <p className="text-[10px] text-slate-500 mt-1">El temporizador se calculará automáticamente con este valor a partir de ahora.</p>
+                <input type="number" required min="1" value={newEvent.durationMinutes} onChange={e => setNewEvent({ ...newEvent, durationMinutes: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400" />
               </div>
               <div>
-                <label className="text-xs text-slate-400 uppercase font-semibold">Descripción / Reglas del Evento</label>
-                <textarea 
-                  value={newEvent.description} 
-                  onChange={e => setNewEvent({ ...newEvent, description: e.target.value })} 
-                  placeholder="Explica de qué trata el evento, recompensas o instrucciones..." 
-                  className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400 h-28" 
-                />
+                <label className="text-xs text-slate-400 uppercase font-semibold">Descripción / Reglas</label>
+                <textarea value={newEvent.description} onChange={e => setNewEvent({ ...newEvent, description: e.target.value })} placeholder="Explica las reglas..." className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400 h-28" />
               </div>
               <div className="flex gap-3 pt-2">
-                <button type="submit" className="flex-1 bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold py-3 rounded-lg transition uppercase text-xs shadow-md">
-                  🚀 Publicar y Anunciar
-                </button>
-                <button type="button" onClick={() => setActiveTab('events')} className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-4 py-3 rounded-lg transition text-xs">
-                  Cancelar
-                </button>
+                <button type="submit" className="flex-1 bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold py-3 rounded-lg transition uppercase text-xs shadow-md">🚀 Publicar y Anunciar</button>
+                <button type="button" onClick={() => setActiveTab('events')} className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-4 py-3 rounded-lg transition text-xs">Cancelar</button>
               </div>
             </form>
           </section>
@@ -814,9 +746,7 @@ export default function App() {
 
         {activeTab === 'creator' && currentUser.role === 'admin' && (
           <section className="max-w-xl mx-auto bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl">
-            <h2 className="text-xl font-bold text-yellow-400 mb-4 flex items-center gap-2">
-              <PlusCircle className="w-5 h-5" /> {editingCardId ? 'Editar Carta' : 'Crear Nueva Carta'}
-            </h2>
+            <h2 className="text-xl font-bold text-yellow-400 mb-4 flex items-center gap-2"><PlusCircle className="w-5 h-5" /> {editingCardId ? 'Editar Carta' : 'Crear Nueva Carta'}</h2>
             <form onSubmit={handleSaveCard} className="space-y-4">
               <div>
                 <label className="text-xs text-slate-400 uppercase font-semibold">Título</label>
@@ -858,86 +788,14 @@ export default function App() {
           </section>
         )}
 
-        {activeTab === 'wheel' && (
-          <section className="max-w-md mx-auto text-center bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-2xl shadow-xl">
-            <h2 className="text-2xl font-bold text-yellow-400 mb-2 flex items-center justify-center gap-2"><Dices className="w-6 h-6" /> Ruleta Kalos</h2>
-            <p className="text-xs text-slate-400 mb-6">Costo por giro: <span className="text-yellow-400 font-bold">20 Monedas</span></p>
-            <div className={`w-48 h-48 mx-auto mb-6 rounded-full border-8 border-yellow-500 flex items-center justify-center bg-slate-950 shadow-inner transition-transform duration-1000 ${spinning ? 'animate-spin' : ''}`}>
-              <Sparkles className="w-16 h-16 text-yellow-400" />
-            </div>
-            {wheelResult && (
-              <div className="bg-slate-950 border border-yellow-500/50 p-4 rounded-xl mb-6 shadow-md">
-                <p className="text-xs text-slate-400">¡Ganaste!</p>
-                <p className="text-lg font-bold text-yellow-400 mt-1">{wheelResult}</p>
-              </div>
-            )}
-            <button onClick={spinWheel} disabled={spinning || currentUser.coins < 20} className="w-full bg-yellow-500 hover:bg-yellow-400 disabled:bg-slate-800 disabled:text-slate-600 text-slate-950 font-bold py-3 rounded-lg transition uppercase text-sm shadow-md">
-              {spinning ? 'Girando...' : 'Girar Ruleta'}
-            </button>
-          </section>
-        )}
-
-        {activeTab === 'trades' && (
-          <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
-            <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-lg">
-              <h3 className="font-bold text-lg mb-4 text-yellow-400 flex items-center gap-2"><ArrowLeftRight className="w-5 h-5" /> Ofrecer Pokémon</h3>
-              <form onSubmit={handleCreateTrade} className="space-y-4">
-                <div>
-                  <label className="text-xs text-slate-400 uppercase font-semibold">Pokémon Ofrecido</label>
-                  <input type="text" required placeholder="Ej. Lucario" value={newTrade.offeredPokemon} onChange={e => setNewTrade({ ...newTrade, offeredPokemon: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400" />
-                </div>
-                <div>
-                  <label className="text-xs text-slate-400 uppercase font-semibold">Nivel</label>
-                  <input type="number" value={newTrade.level} onChange={e => setNewTrade({ ...newTrade, level: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400" />
-                </div>
-                <div>
-                  <label className="text-xs text-slate-400 uppercase font-semibold">Pido a cambio</label>
-                  <input type="text" required placeholder="Ej. Objeto Revivir" value={newTrade.requestedItem} onChange={e => setNewTrade({ ...newTrade, requestedItem: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400" />
-                </div>
-                <button type="submit" className="w-full bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold py-3 rounded-lg transition text-xs uppercase shadow-md">Publicar</button>
-              </form>
-            </div>
-
-            <div className="md:col-span-2 bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-lg">
-              <h3 className="font-bold text-lg mb-4 text-slate-200">Ofertas Publicadas</h3>
-              {trades.length === 0 ? (
-                <p className="text-slate-500 text-xs py-8 text-center">No hay intercambios activos.</p>
-              ) : (
-                <div className="space-y-3">
-                  {trades.map(trade => (
-                    <div key={trade.id} className="bg-slate-950 border border-slate-800 p-4 rounded-lg flex items-center justify-between shadow-sm">
-                      <div>
-                        <span className="text-[10px] text-slate-500">{trade.user_email}</span>
-                        <p className="font-bold text-yellow-400 text-base">{trade.offered_pokemon} <span className="text-xs text-slate-400">(Nv. {trade.level})</span></p>
-                        <p className="text-xs text-slate-300 mt-1">Busca: <span className="text-slate-100 font-semibold">{trade.requested_item}</span></p>
-                      </div>
-                      <button className="bg-slate-800 hover:bg-slate-700 text-xs px-3 py-2 rounded-lg font-bold transition shadow-sm">Aceptar</button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          </section>
-        )}
-
+        {/* 🛡️ PANEL DE ADMINISTRADOR CON GESTIÓN DE LAS 3 RULETAS Y PESOS/PROBABILIDADES */}
         {activeTab === 'admin' && currentUser.role === 'admin' && (
           <div className="space-y-8">
             <section className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-lg">
-              <h2 className="text-xl font-bold text-yellow-400 mb-4 flex items-center gap-2">
-                <Type className="w-6 h-6" /> Título de la Plataforma en Tiempo Real
-              </h2>
+              <h2 className="text-xl font-bold text-yellow-400 mb-4 flex items-center gap-2"><Type className="w-6 h-6" /> Título de la Plataforma</h2>
               <form onSubmit={handleUpdateSiteTitle} className="flex flex-col sm:flex-row gap-4">
-                <input 
-                  type="text" 
-                  required 
-                  placeholder="Ej. KALOS LOCKE / ULTRALOCKE" 
-                  value={newSiteTitle} 
-                  onChange={e => setNewSiteTitle(e.target.value)} 
-                  className="flex-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400" 
-                />
-                <button type="submit" className="bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold px-6 py-3 rounded-lg text-xs uppercase shadow-md">
-                  Guardar Nombre
-                </button>
+                <input type="text" required placeholder="Ej. KALOS LOCKE" value={newSiteTitle} onChange={e => setNewSiteTitle(e.target.value)} className="flex-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400" />
+                <button type="submit" className="bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold px-6 py-3 rounded-lg text-xs uppercase shadow-md">Guardar Nombre</button>
               </form>
             </section>
 
@@ -950,25 +808,17 @@ export default function App() {
                       <p className="font-bold text-sm text-white">{u.name}</p>
                       <p className="text-xs text-slate-500 font-mono">{u.email}</p>
                       <div className="mt-2 flex flex-wrap gap-2 items-center">
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${u.status === 'approved' ? 'bg-emerald-950 text-emerald-400' : 'bg-amber-950 text-amber-400'}`}>
-                          {u.status === 'approved' ? 'Aprobado' : 'Pendiente'}
-                        </span>
-                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${u.role === 'admin' ? 'bg-purple-950 text-purple-300' : 'bg-slate-800 text-slate-300'}`}>
-                          {u.role}
-                        </span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${u.status === 'approved' ? 'bg-emerald-950 text-emerald-400' : 'bg-amber-950 text-amber-400'}`}>{u.status === 'approved' ? 'Aprobado' : 'Pendiente'}</span>
+                        <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${u.role === 'admin' ? 'bg-purple-950 text-purple-300' : 'bg-slate-800 text-slate-300'}`}>{u.role}</span>
                         <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded font-mono">{u.coins || 0} Pts</span>
                       </div>
                     </div>
                     <div className="flex flex-col gap-2">
                       {u.status === 'pending' && (
-                        <button onClick={() => approveUser(u.id)} className="bg-emerald-600 hover:bg-emerald-500 text-xs px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 shadow-sm">
-                          <UserCheck className="w-3.5 h-3.5" /> Aprobar
-                        </button>
+                        <button onClick={() => approveUser(u.id)} className="bg-emerald-600 hover:bg-emerald-500 text-xs px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 shadow-sm"><UserCheck className="w-3.5 h-3.5" /> Aprobar</button>
                       )}
                       {u.email !== 'antimanezekiel@gmail.com' && (
-                        <button onClick={() => toggleUserRole(u.id, u.role)} className="bg-purple-700 hover:bg-purple-600 text-xs px-2 py-1 rounded font-bold flex items-center justify-center gap-1 text-white shadow-sm">
-                          <UserCog className="w-3.5 h-3.5" /> {u.role === 'admin' ? 'Quitar' : 'Hacer Admin'}
-                        </button>
+                        <button onClick={() => toggleUserRole(u.id, u.role)} className="bg-purple-700 hover:bg-purple-600 text-xs px-2 py-1 rounded font-bold flex items-center justify-center gap-1 text-white shadow-sm"><UserCog className="w-3.5 h-3.5" /> {u.role === 'admin' ? 'Quitar' : 'Hacer Admin'}</button>
                       )}
                       <div className="flex gap-1">
                         <button onClick={() => updateUserCoins(u.id, 50)} className="bg-yellow-600 hover:bg-yellow-500 text-xs px-2 py-1 rounded font-bold shadow-sm">+50</button>
@@ -980,20 +830,45 @@ export default function App() {
               </div>
             </section>
 
+            {/* GESTIÓN DE LAS 3 RULETAS CON PROBABILIDADES Y PESOS */}
             <section className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-lg">
-              <h2 className="text-xl font-bold text-yellow-400 mb-4 flex items-center gap-2"><Settings className="w-6 h-6" /> Premios de la Ruleta</h2>
-              <form onSubmit={handleAddWheelPrize} className="flex flex-col sm:flex-row gap-4 mb-6">
-                <input type="text" required placeholder="Premio (Ej. Carta Rara)" value={newWheelPrize.name} onChange={e => setNewWheelPrize({ ...newWheelPrize, name: e.target.value })} className="flex-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400" />
-                <input type="number" required placeholder="Monedas" value={newWheelPrize.coins} onChange={e => setNewWheelPrize({ ...newWheelPrize, coins: e.target.value })} className="w-full sm:w-48 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400" />
-                <button type="submit" className="bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold px-6 py-3 rounded-lg text-xs uppercase shadow-md">Agregar</button>
+              <h2 className="text-xl font-bold text-yellow-400 mb-4 flex items-center gap-2"><Settings className="w-6 h-6" /> Configurar Premios y Probabilidades de las Ruletas</h2>
+              
+              <form onSubmit={handleAddWheelPrize} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 bg-slate-950 p-4 rounded-xl border border-slate-800">
+                <div>
+                  <label className="text-[10px] text-slate-400 uppercase font-semibold">Ruleta Destino</label>
+                  <select value={newWheelPrize.wheelType} onChange={e => setNewWheelPrize({ ...newWheelPrize, wheelType: e.target.value })} className="w-full mt-1 bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-yellow-400">
+                    <option value="objects">📦 Objetos</option>
+                    <option value="gym">🛡️ Gimnasios</option>
+                    <option value="sections">🗺️ Tramos</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-[10px] text-slate-400 uppercase font-semibold">Nombre del Premio</label>
+                  <input type="text" required placeholder="Ej. Poción Máxima" value={newWheelPrize.name} onChange={e => setNewWheelPrize({ ...newWheelPrize, name: e.target.value })} className="w-full mt-1 bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-yellow-400" />
+                </div>
+                <div>
+                  <label className="text-[10px] text-slate-400 uppercase font-semibold">Monedas Extra</label>
+                  <input type="number" required placeholder="50" value={newWheelPrize.coins} onChange={e => setNewWheelPrize({ ...newWheelPrize, coins: e.target.value })} className="w-full mt-1 bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-yellow-400" />
+                </div>
+                <div>
+                  <label className="text-[10px] text-slate-400 uppercase font-semibold">Peso / Probabilidad (Ej. 10)</label>
+                  <input type="number" required min="1" placeholder="10" value={newWheelPrize.weight} onChange={e => setNewWheelPrize({ ...newWheelPrize, weight: e.target.value })} className="w-full mt-1 bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-yellow-400" />
+                </div>
+                <div className="sm:col-span-2 lg:col-span-4">
+                  <button type="submit" className="w-full bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold py-2.5 rounded-lg text-xs uppercase shadow-md">Agregar Premio a Ruleta</button>
+                </div>
               </form>
 
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
                 {wheelPrizes.map(p => (
                   <div key={p.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex items-center justify-between shadow-sm">
                     <div>
-                      <p className="font-bold text-sm text-white">{p.name}</p>
-                      <p className="text-xs text-yellow-400 mt-1">Premio: {p.reward_coins} Pts</p>
+                      <span className="text-[9px] uppercase font-bold text-yellow-400 bg-yellow-950/40 px-2 py-0.5 rounded border border-yellow-800">
+                        {p.wheel_type === 'gym' ? '🛡️ Gimnasio' : p.wheel_type === 'sections' ? '🗺️ Tramo' : '📦 Objeto'}
+                      </span>
+                      <p className="font-bold text-sm text-white mt-1">{p.name}</p>
+                      <p className="text-[11px] text-slate-400 mt-0.5">Premio: {p.reward_coins} Pts | <span className="text-yellow-400 font-semibold">Peso: {p.weight || 10}</span></p>
                     </div>
                     <button onClick={() => handleDeleteWheelPrize(p.id)} className="bg-red-600 hover:bg-red-500 text-white p-2 rounded-lg shadow-sm"><Trash2 className="w-4 h-4" /></button>
                   </div>
