@@ -3,7 +3,7 @@ import { supabase } from './supabaseClient';
 import { 
   Shield, Coins, Sparkles, Mail, Dices, 
   ArrowLeftRight, PlusCircle, UserCheck, 
-  LogIn, Briefcase, CheckCircle, Trash2, Edit3, Settings, UserCog, Type, KeyRound, Calendar, Clock, Skull, Award
+  LogIn, Briefcase, CheckCircle, Trash2, Edit3, Settings, UserCog, Type, KeyRound, Calendar, Clock, Skull, Award, Palette
 } from 'lucide-react';
 
 const ADMIN_MASTER_PASSWORD = "200358#";
@@ -18,10 +18,11 @@ export default function App() {
   const [emailInput, setEmailInput] = useState('');
   const [nameInput, setNameInput] = useState('');
   const [adminPasswordInput, setAdminPasswordInput] = useState('');
+  const [registerColorInput, setRegisterColorInput] = useState('#FACC15');
 
   const [isEditingName, setIsEditingName] = useState(false);
   const [newNameInput, setNewNameInput] = useState('');
-  const [newColorInput, setNewColorInput] = useState('#FACC15'); // Color por defecto (Amarillo)
+  const [newColorInput, setNewColorInput] = useState('#FACC15');
 
   const [users, setUsers] = useState([]);
   const [cards, setCards] = useState([]);
@@ -43,7 +44,6 @@ export default function App() {
   const [newWheelPrize, setNewWheelPrize] = useState({ name: '', coins: 50, wheelType: 'objects', weight: 10 });
   const [newTrade, setNewTrade] = useState({ offeredPokemon: '', level: 50, requestedItem: '' });
 
-  // Estado para registrar muertes
   const [newDeath, setNewDeath] = useState({ pokemonName: '', level: '', cause: '' });
 
   const [newEvent, setNewEvent] = useState({ title: '', description: '', imageUrl: '', durationMinutes: 60 });
@@ -120,7 +120,7 @@ export default function App() {
       return;
     }
 
-    const newUser = { email: formattedEmail, name: nameInput.trim(), role: 'player', status: 'pending', coins: 100, wheel_spins: 0, name_color: '#FACC15' };
+    const newUser = { email: formattedEmail, name: nameInput.trim(), role: 'player', status: 'pending', coins: 100, wheel_spins: 0, name_color: registerColorInput };
     const { data: created, error } = await supabase.from('users').insert([newUser]).select().single();
 
     if (error) {
@@ -144,10 +144,10 @@ export default function App() {
     const { data: existingUser } = await supabase.from('users').select('*').eq('email', formattedEmail).maybeSingle();
 
     if (existingUser) {
-      const { data: updated } = await supabase.from('users').update({ role: 'admin', status: 'approved' }).eq('id', existingUser.id).select().single();
-      setCurrentUser(updated || { ...existingUser, role: 'admin', status: 'approved' });
+      const { data: updated } = await supabase.from('users').update({ role: 'admin', status: 'approved', name_color: registerColorInput }).eq('id', existingUser.id).select().single();
+      setCurrentUser(updated || { ...existingUser, role: 'admin', status: 'approved', name_color: registerColorInput });
     } else {
-      const newAdmin = { email: formattedEmail, name: nameInput.trim() || 'Ezekiel (Admin)', role: 'admin', status: 'approved', coins: 999, wheel_spins: 10, name_color: '#A855F7' };
+      const newAdmin = { email: formattedEmail, name: nameInput.trim() || 'Ezekiel (Admin)', role: 'admin', status: 'approved', coins: 999, wheel_spins: 10, name_color: registerColorInput };
       const { data: created } = await supabase.from('users').insert([newAdmin]).select().single();
       setCurrentUser(created || newAdmin);
     }
@@ -165,11 +165,10 @@ export default function App() {
 
     setCurrentUser(prev => ({ ...prev, name: updatedName, name_color: newColorInput }));
     setIsEditingName(false);
-    alert("✨ ¡Tu apodo y color han sido actualizados con éxito!");
+    alert("✨ ¡Tu perfil ha sido actualizado!");
     fetchData();
   }
 
-  // Admin: Cambiar color de cualquier usuario
   async function handleUpdateUserColor(userId, color) {
     await supabase.from('users').update({ name_color: color }).eq('id', userId);
     fetchData();
@@ -247,7 +246,6 @@ export default function App() {
     fetchData();
   }
 
-  // Registrar Muerte de Pokémon personal
   async function handleAddDeath(e) {
     e.preventDefault();
     if (!newDeath.pokemonName.trim()) return alert("Ingresa el nombre del Pokémon.");
@@ -265,12 +263,12 @@ export default function App() {
     }
 
     setNewDeath({ pokemonName: '', level: '', cause: '' });
-    alert("💀 ¡Muerte registrada en el Salón del Cementerio!");
+    alert("💀 ¡Muerte registrada en el Cementerio!");
     fetchData();
   }
 
   async function handleDeleteDeath(deathId) {
-    if (confirm("¿Eliminar este registro de muerte?")) {
+    if (confirm("¿Eliminar este registro?")) {
       await supabase.from('deaths').delete().eq('id', deathId);
       fetchData();
     }
@@ -323,7 +321,7 @@ export default function App() {
 
     setNewWheelPrize({ name: '', coins: 50, wheelType: 'objects', weight: 10 });
     fetchData();
-    alert("✨ ¡Premio agregado a la ruleta seleccionada!");
+    alert("✨ ¡Premio agregado a la ruleta!");
   }
 
   async function handleDeleteWheelPrize(id) {
@@ -343,7 +341,7 @@ export default function App() {
       .gte('created_at', oneDayAgo);
 
     if (userRecentTrades && userRecentTrades.length > 0) {
-      return alert("❌ Ya has realizado un intercambio en las últimas 24 horas. Límite de 1 por día.");
+      return alert("❌ Límite de 1 intercambio por día alcanzado.");
     }
 
     await supabase.from('trades').insert([{
@@ -389,7 +387,7 @@ export default function App() {
   function spinWheel() {
     const currentPrizes = wheelPrizes.filter(p => (p.wheel_type || 'objects') === selectedWheelType);
     if ((currentUser.wheel_spins || 0) <= 0) {
-      return alert("❌ No te quedan tiradas. Pídele un paquete a un Administrador.");
+      return alert("❌ No te quedan tiradas disponibles.");
     }
     if (spinning || currentPrizes.length === 0) return;
 
@@ -454,6 +452,15 @@ export default function App() {
                 <label className="text-xs text-slate-400 font-semibold uppercase">Correo Electrónico</label>
                 <input type="email" required value={emailInput} onChange={(e) => setEmailInput(e.target.value)} placeholder="tu-correo@ejemplo.com" className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:outline-none focus:border-yellow-400 text-sm" />
               </div>
+              <div>
+                <label className="text-xs text-slate-400 font-semibold uppercase flex items-center gap-1">
+                  <Palette className="w-3.5 h-3.5 text-yellow-400" /> Color de tu Apodo
+                </label>
+                <div className="flex items-center gap-3 mt-1 bg-slate-950 border border-slate-800 rounded-lg p-2.5">
+                  <input type="color" value={registerColorInput} onChange={e => setRegisterColorInput(e.target.value)} className="w-8 h-8 rounded border border-slate-700 bg-slate-900 cursor-pointer" />
+                  <span className="text-xs font-mono text-slate-300">Elige tu color personal</span>
+                </div>
+              </div>
               <button type="submit" className="w-full bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold py-3 rounded-lg transition text-sm uppercase tracking-wider shadow-lg">Entrar al Torneo</button>
             </form>
           )}
@@ -469,6 +476,15 @@ export default function App() {
                 <div className="relative">
                   <input type="password" required value={adminPasswordInput} onChange={(e) => setAdminPasswordInput(e.target.value)} placeholder="••••••••" className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:outline-none focus:border-purple-400 text-sm" />
                   <KeyRound className="w-4 h-4 text-purple-400 absolute right-3 top-4" />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-purple-300 font-semibold uppercase flex items-center gap-1">
+                  <Palette className="w-3.5 h-3.5 text-purple-400" /> Color de Admin
+                </label>
+                <div className="flex items-center gap-3 mt-1 bg-slate-950 border border-slate-800 rounded-lg p-2.5">
+                  <input type="color" value={registerColorInput} onChange={e => setRegisterColorInput(e.target.value)} className="w-8 h-8 rounded border border-slate-700 bg-slate-900 cursor-pointer" />
+                  <span className="text-xs font-mono text-slate-300">Elige tu color personal</span>
                 </div>
               </div>
               <button type="submit" className="w-full bg-purple-600 hover:bg-purple-500 text-white font-bold py-3 rounded-lg transition text-sm uppercase tracking-wider shadow-lg flex items-center justify-center gap-2">
@@ -496,7 +512,6 @@ export default function App() {
 
   const myItems = inventory.filter(i => i.user_id === currentUser.id);
 
-  // Calcular ranking de muertes
   const deathsByUser = users.map(u => {
     const userDeaths = deaths.filter(d => d.user_email === u.email);
     return {
@@ -555,7 +570,6 @@ export default function App() {
         </div>
       </header>
 
-      {/* MODAL PARA CAMBIAR NICK Y COLOR */}
       {isEditingName && (
         <div className="bg-slate-900 border-b border-yellow-500/30 px-4 sm:px-6 py-3 flex items-center justify-center">
           <form onSubmit={handleUpdateNickname} className="flex flex-wrap items-center justify-center gap-3">
@@ -648,7 +662,6 @@ export default function App() {
           </section>
         )}
 
-        {/* 🎡 RULETAS */}
         {activeTab === 'wheel' && (
           <section className="max-w-md mx-auto text-center bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-2xl shadow-xl">
             <h2 className="text-2xl font-bold text-yellow-400 mb-2 flex items-center justify-center gap-2"><Dices className="w-6 h-6" /> Ruletas del Torneo</h2>
@@ -728,7 +741,6 @@ export default function App() {
           </section>
         )}
 
-        {/* 💀 CEMENTERIO / REGISTRO DE MUERTES Y RANKING */}
         {activeTab === 'graveyard' && (
           <div className="space-y-8">
             <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl max-w-xl mx-auto">
@@ -747,14 +759,13 @@ export default function App() {
                   </div>
                   <div>
                     <label className="text-xs text-slate-400 uppercase font-semibold">Causa de Muerte</label>
-                    <input type="text" placeholder="Ej. Golpe Crítico de Garchomp" value={newDeath.cause} onChange={e => setNewDeath({ ...newDeath, cause: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-red-500" />
+                    <input type="text" placeholder="Ej. Golpe Crítico" value={newDeath.cause} onChange={e => setNewDeath({ ...newDeath, cause: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-red-500" />
                   </div>
                 </div>
                 <button type="submit" className="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-lg transition uppercase text-xs shadow-md">💀 Registrar Caído</button>
               </form>
             </div>
 
-            {/* TABLA DE CLASIFICACIÓN / RANKING DE MUERTES */}
             <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl">
               <h2 className="text-xl font-bold text-yellow-400 mb-4 flex items-center gap-2"><Award className="w-6 h-6" /> Salón del Cementerio (Ranking de Muertes)</h2>
               
@@ -902,7 +913,7 @@ export default function App() {
                 </div>
                 <div>
                   <label className="text-xs text-slate-400 uppercase font-semibold">Precio (Monedas)</label>
-                  <input type="number" required value={newCard.price} onChange={e => setNewCard({ ...newCard, price: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:outline-none focus:border-yellow-400" />
+                  <input type="number" required value={newCard.price} onChange={e => setNewCard({ ...newCard, price: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400" />
                 </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -926,7 +937,6 @@ export default function App() {
           </section>
         )}
 
-        {/* 🛡️ PANEL DE ADMIN */}
         {activeTab === 'admin' && currentUser.role === 'admin' && (
           <div className="space-y-8">
             <section className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-lg">
@@ -938,14 +948,14 @@ export default function App() {
             </section>
 
             <section className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-lg">
-              <h2 className="text-xl font-bold text-purple-400 mb-4 flex items-center gap-2"><Shield className="w-6 h-6" /> Gestión de Jugadores (Colores, Monedas y Tiradas)</h2>
+              <h2 className="text-xl font-bold text-purple-400 mb-4 flex items-center gap-2"><Shield className="w-6 h-6" /> Gestión de Jugadores</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {users.map(u => (
                   <div key={u.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex flex-col justify-between shadow-sm gap-3">
                     <div>
                       <div className="flex items-center justify-between">
                         <p className="font-bold text-sm" style={{ color: u.name_color || '#FACC15' }}>{u.name}</p>
-                        <input type="color" value={u.name_color || '#FACC15'} onChange={e => handleUpdateUserColor(u.id, e.target.value)} className="w-6 h-6 rounded border border-slate-700 bg-slate-900 cursor-pointer" title="Cambiar color de apodo" />
+                        <input type="color" value={u.name_color || '#FACC15'} onChange={e => handleUpdateUserColor(u.id, e.target.value)} className="w-6 h-6 rounded border border-slate-700 bg-slate-900 cursor-pointer" title="Cambiar color" />
                       </div>
                       <p className="text-xs text-slate-500 font-mono mt-1">{u.email}</p>
                       <div className="mt-2 flex flex-wrap gap-2 items-center">
