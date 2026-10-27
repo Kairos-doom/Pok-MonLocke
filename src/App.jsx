@@ -47,15 +47,13 @@ export default function App() {
   useEffect(() => {
     fetchData();
 
-    // Actualizador en tiempo real de los temporizadores
     const timerInterval = setInterval(() => {
       setCurrentTime(Date.now());
     }, 1000);
 
-    // ⚡ CANAL REALTIME GLOBAL PARA ACTUALIZACIÓN INSTANTÁNEA SIN REINICIAR
     const channel = supabase
       .channel('realtime-all-changes')
-      .on('postgres_changes', { event: '*', schema: 'public' }, (payload) => {
+      .on('postgres_changes', { event: '*', schema: 'public' }, () => {
         fetchData();
       })
       .subscribe();
@@ -66,7 +64,6 @@ export default function App() {
     };
   }, []);
 
-  // Mantiene al usuario actual con los datos más recientes (monedas, rol, etc.) de manera fluida
   useEffect(() => {
     if (currentUser) {
       const updatedSelf = users.find(u => u.id === currentUser.id);
@@ -115,7 +112,7 @@ export default function App() {
       return;
     }
 
-    const newUser = { email: formattedEmail, name: nameInput.trim(), role: 'player', status: 'pending', coins: 100 };
+    const newUser = { email: formattedEmail, name: nameInput.trim(), role: 'player', status: 'pending', coins: 100, wheel_spins: 0 };
     const { data: created, error } = await supabase.from('users').insert([newUser]).select().single();
 
     if (error) {
@@ -142,7 +139,7 @@ export default function App() {
       const { data: updated } = await supabase.from('users').update({ role: 'admin', status: 'approved' }).eq('id', existingUser.id).select().single();
       setCurrentUser(updated || { ...existingUser, role: 'admin', status: 'approved' });
     } else {
-      const newAdmin = { email: formattedEmail, name: nameInput.trim() || 'Ezekiel (Admin)', role: 'admin', status: 'approved', coins: 999 };
+      const newAdmin = { email: formattedEmail, name: nameInput.trim() || 'Ezekiel (Admin)', role: 'admin', status: 'approved', coins: 999, wheel_spins: 10 };
       const { data: created } = await supabase.from('users').insert([newAdmin]).select().single();
       setCurrentUser(created || newAdmin);
     }
@@ -227,6 +224,16 @@ export default function App() {
     fetchData();
   }
 
+  // Admin: Otorgar o modificar tiradas de ruleta a un usuario
+  async function updateUserSpins(userId, amount) {
+    const target = users.find(u => u.id === userId);
+    if (!target) return;
+
+    const newSpins = Math.max(0, (target.wheel_spins || 0) + amount);
+    await supabase.from('users').update({ wheel_spins: newSpins }).eq('id', userId);
+    fetchData();
+  }
+
   async function handleSaveCard(e) {
     e.preventDefault();
     if (!newCard.title || newCard.price <= 0) return;
@@ -282,15 +289,42 @@ export default function App() {
     fetchData();
   }
 
+  // Intercambios con límite de 1 por día basado estrictamente en el reloj del servidor (Base de datos)
   async function handleCreateTrade(e) {
     e.preventDefault();
     if (!newTrade.offeredPokemon) return;
 
-    await supabase.from('trades').insert([{
-      user_email: currentUser.email, offered_pokemon: newTrade.offeredPokemon, level: Number(newTrade.level), requested_item: newTrade.requestedItem, status: 'open'
+    // Consultar si este correo ya hizo un intercambio en las últimas 24 horas (reloj de servidor)
+    const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { data: userRecentTrades, error: checkError } = await supabase
+      .from('trades')
+      .select('*')
+      .eq('user_email', currentUser.email)
+      .gte('created_at', oneDayAgo);
+
+    if (checkError) {
+      console.error(checkError);
+    }
+
+    if (userRecentTrades && userRecentTrades.length > 0) {
+      return alert("❌ Ya has realizado un intercambio en las últimas 24 horas. Solo se permite 1 intercambio por día por cuenta.");
+    }
+
+    const { error } = await supabase.from('trades').insert([{
+      user_email: currentUser.email, 
+      offered_pokemon: newTrade.offeredPokemon, 
+      level: Number(newTrade.level), 
+      requested_item: newTrade.requestedItem, 
+      status: 'open'
     }]);
 
+    if (error) {
+      alert("❌ Error al publicar intercambio: " + error.message);
+      return;
+    }
+
     setNewTrade({ offeredPokemon: '', level: 50, requestedItem: '' });
+    alert("✨ ¡Intercambio publicado con éxito!");
     fetchData();
   }
 
@@ -314,30 +348,38 @@ export default function App() {
     }]);
 
     if (error) {
-      alert("❌ Error al crear el evento: " + error.message);
+      alert("❌ Error al crear la incursión: " + error.message);
       return;
     }
 
     setNewEvent({ title: '', description: '', imageUrl: '', durationMinutes: 60 });
-    alert("🚨 ¡Nuevo evento publicado en tiempo real!");
+    alert("🚨 ¡Nueva incursión publicada en tiempo real!");
     setActiveTab('events');
     fetchData();
   }
 
   async function handleDeleteEvent(eventId) {
-    if (confirm("¿Finalizar y eliminar este evento?")) {
+    if (confirm("¿Finalizar y eliminar esta incursión?")) {
       await supabase.from('events').delete().eq('id', eventId);
       fetchData();
     }
   }
 
-  function spinWheel() {
+  // Girar ruleta descontando una tirada otorgada por el admin
+  async function spinWheel() {
     const currentPrizes = wheelPrizes.filter(p => (p.wheel_type || 'objects') === selectedWheelType);
-    if (currentUser.coins < 20 || spinning || currentPrizes.length === 0) return;
+    if ((currentUser.wheel_spins || 0) <= 0) {
+      return alert("❌ No te quedan tiradas disponibles. Pídele un paquete de tiradas a un Administrador.");
+    }
+    if (spinning || currentPrizes.length === 0) return;
 
     setSpinning(true);
     setWheelResult(null);
-    updateUserCoins(currentUser.id, -20);
+
+    // Descontar 1 tirada al usuario actual
+    const remainingSpins = currentUser.wheel_spins - 1;
+    await supabase.from('users').update({ wheel_spins: remainingSpins }).eq('id', currentUser.id);
+    setCurrentUser(prev => ({ ...prev, wheel_spins: remainingSpins }));
 
     setTimeout(() => {
       const totalWeight = currentPrizes.reduce((sum, p) => sum + (Number(p.weight) || 10), 0);
@@ -358,6 +400,7 @@ export default function App() {
       }
       setWheelResult(selectedPrize.name);
       setSpinning(false);
+      fetchData();
     }, 2000);
   }
 
@@ -457,7 +500,7 @@ export default function App() {
           <button onClick={() => setActiveTab('wheel')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${activeTab === 'wheel' ? 'bg-yellow-500 text-slate-950 shadow-md' : 'bg-slate-800 hover:bg-slate-700'}`}>Ruletas (3)</button>
           <button onClick={() => setActiveTab('trades')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${activeTab === 'trades' ? 'bg-yellow-500 text-slate-950 shadow-md' : 'bg-slate-800 hover:bg-slate-700'}`}>Intercambios</button>
           <button onClick={() => setActiveTab('events')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 relative ${activeTab === 'events' ? 'bg-yellow-500 text-slate-950 shadow-md' : 'bg-slate-800 hover:bg-slate-700'}`}>
-            <Calendar className="w-3.5 h-3.5" /> Eventos
+            <Calendar className="w-3.5 h-3.5" /> Incursiones
             {events.length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] px-1.5 py-0.2 rounded-full animate-pulse">{events.length}</span>}
           </button>
           {currentUser.role === 'admin' && (
@@ -567,10 +610,14 @@ export default function App() {
           </section>
         )}
 
+        {/* 🎡 RULETAS CON CONTROL DE TIRADAS DISPONIBLES */}
         {activeTab === 'wheel' && (
           <section className="max-w-md mx-auto text-center bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-2xl shadow-xl">
             <h2 className="text-2xl font-bold text-yellow-400 mb-2 flex items-center justify-center gap-2"><Dices className="w-6 h-6" /> Ruletas del Torneo</h2>
-            <p className="text-xs text-slate-400 mb-4">Costo por giro: <span className="text-yellow-400 font-bold">20 Monedas</span></p>
+            <div className="bg-slate-950 border border-yellow-500/30 p-3 rounded-xl mb-4">
+              <p className="text-xs text-slate-300">Tiradas Disponibles: <span className="text-yellow-400 font-bold text-base">{currentUser.wheel_spins || 0}</span></p>
+              <p className="text-[10px] text-slate-500 mt-0.5">Pídele más tiradas a un administrador si se te agotaron.</p>
+            </div>
 
             <div className="grid grid-cols-3 gap-1.5 mb-6 bg-slate-950 p-1 rounded-xl border border-slate-800">
               <button onClick={() => setSelectedWheelType('objects')} className={`py-2 text-[11px] font-bold rounded-lg transition ${selectedWheelType === 'objects' ? 'bg-yellow-500 text-slate-950 shadow-md' : 'text-slate-400 hover:text-white'}`}>
@@ -595,7 +642,7 @@ export default function App() {
               </div>
             )}
 
-            <button onClick={spinWheel} disabled={spinning || currentUser.coins < 20} className="w-full bg-yellow-500 hover:bg-yellow-400 disabled:bg-slate-800 disabled:text-slate-600 text-slate-950 font-bold py-3 rounded-lg transition uppercase text-sm shadow-md">
+            <button onClick={spinWheel} disabled={spinning || (currentUser.wheel_spins || 0) <= 0} className="w-full bg-yellow-500 hover:bg-yellow-400 disabled:bg-slate-800 disabled:text-slate-600 text-slate-950 font-bold py-3 rounded-lg transition uppercase text-sm shadow-md">
               {spinning ? 'Girando ruleta...' : `Girar Ruleta (${selectedWheelType.toUpperCase()})`}
             </button>
           </section>
@@ -618,7 +665,7 @@ export default function App() {
                   <label className="text-xs text-slate-400 uppercase font-semibold">Pido a cambio</label>
                   <input type="text" required placeholder="Ej. Objeto Revivir" value={newTrade.requestedItem} onChange={e => setNewTrade({ ...newTrade, requestedItem: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400" />
                 </div>
-                <button type="submit" className="w-full bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold py-3 rounded-lg transition text-xs uppercase shadow-md">Publicar</button>
+                <button type="submit" className="w-full bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold py-3 rounded-lg transition text-xs uppercase shadow-md">Publicar (1 al día)</button>
               </form>
             </div>
 
@@ -644,16 +691,17 @@ export default function App() {
           </section>
         )}
 
+        {/* 🚨 INCURSIONES (Antes Eventos) */}
         {activeTab === 'events' && (
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div>
-                <h2 className="text-2xl font-black text-yellow-400 flex items-center gap-2"><Calendar className="w-6 h-6" /> Eventos Activos</h2>
-                <p className="text-xs text-slate-400 mt-1">Revisa los eventos especiales y temporizadores activos en tiempo real.</p>
+                <h2 className="text-2xl font-black text-yellow-400 flex items-center gap-2"><Calendar className="w-6 h-6" /> Incursiones Activas</h2>
+                <p className="text-xs text-slate-400 mt-1">Revisa las incursiones especiales y temporizadores activos en tiempo real.</p>
               </div>
               {currentUser.role === 'admin' && (
                 <button onClick={() => setActiveTab('create-event')} className="bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs uppercase shadow-md flex items-center gap-2">
-                  <PlusCircle className="w-4 h-4" /> Crear Evento
+                  <PlusCircle className="w-4 h-4" /> Crear Incursión
                 </button>
               )}
             </div>
@@ -661,7 +709,7 @@ export default function App() {
             {events.length === 0 ? (
               <div className="bg-slate-900 border border-slate-800 p-12 rounded-2xl text-center shadow-lg">
                 <Calendar className="w-12 h-12 text-slate-600 mx-auto mb-3" />
-                <p className="text-slate-400 text-sm">No hay eventos activos.</p>
+                <p className="text-slate-400 text-sm">No hay incursiones activas.</p>
               </div>
             ) : (
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -682,10 +730,10 @@ export default function App() {
                       <div className="p-6 flex-1 flex flex-col justify-between">
                         <div>
                           <div className="flex items-center justify-between mb-2">
-                            <span className="text-[10px] font-bold px-2.5 py-1 rounded-full uppercase bg-yellow-500/10 text-yellow-400 border border-yellow-500/30">📢 Evento Oficial</span>
+                            <span className="text-[10px] font-bold px-2.5 py-1 rounded-full uppercase bg-yellow-500/10 text-yellow-400 border border-yellow-500/30">📢 Incursión Oficial</span>
                             <div className="flex items-center gap-1.5 bg-slate-950 px-3 py-1 rounded-lg border border-slate-800 text-xs font-mono text-yellow-400">
                               <Clock className="w-3.5 h-3.5 text-yellow-400" />
-                              {isExpired ? '¡Finalizado!' : `${hours}h ${minutes}m ${seconds}s`}
+                              {isExpired ? '¡Finalizada!' : `${hours}h ${minutes}m ${seconds}s`}
                             </div>
                           </div>
                           <h3 className="text-xl font-bold text-white mt-2">{ev.title}</h3>
@@ -694,7 +742,7 @@ export default function App() {
                         {currentUser.role === 'admin' && (
                           <div className="mt-6 pt-4 border-t border-slate-800 flex justify-end">
                             <button onClick={() => handleDeleteEvent(ev.id)} className="bg-red-600 hover:bg-red-500 text-white text-xs font-bold px-3 py-1.5 rounded-lg flex items-center gap-1 transition shadow-sm">
-                              <Trash2 className="w-3.5 h-3.5" /> Eliminar Evento
+                              <Trash2 className="w-3.5 h-3.5" /> Eliminar Incursión
                             </button>
                           </div>
                         )}
@@ -709,11 +757,11 @@ export default function App() {
 
         {activeTab === 'create-event' && currentUser.role === 'admin' && (
           <section className="max-w-xl mx-auto bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-2xl shadow-xl">
-            <h2 className="text-xl font-bold text-yellow-400 mb-4 flex items-center gap-2"><Calendar className="w-5 h-5" /> Crear y Anunciar Evento</h2>
+            <h2 className="text-xl font-bold text-yellow-400 mb-4 flex items-center gap-2"><Calendar className="w-5 h-5" /> Crear y Anunciar Incursión</h2>
             <form onSubmit={handleCreateEvent} className="space-y-4">
               <div>
-                <label className="text-xs text-slate-400 uppercase font-semibold">Título del Evento</label>
-                <input type="text" required value={newEvent.title} onChange={e => setNewEvent({ ...newEvent, title: e.target.value })} placeholder="Ej. Shiny hunt" className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400" />
+                <label className="text-xs text-slate-400 uppercase font-semibold">Título de la Incursión</label>
+                <input type="text" required value={newEvent.title} onChange={e => setNewEvent({ ...newEvent, title: e.target.value })} placeholder="Ej. Incursión Legendaria" className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400" />
               </div>
               <div>
                 <label className="text-xs text-slate-400 uppercase font-semibold">URL de la Imagen</label>
@@ -725,10 +773,10 @@ export default function App() {
               </div>
               <div>
                 <label className="text-xs text-slate-400 uppercase font-semibold">Descripción / Reglas</label>
-                <textarea value={newEvent.description} onChange={e => setNewEvent({ ...newEvent, description: e.target.value })} placeholder="Explica las reglas..." className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400 h-28" />
+                <textarea value={newEvent.description} onChange={e => setNewEvent({ ...newEvent, description: e.target.value })} placeholder="Explica las reglas de la incursión..." className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400 h-28" />
               </div>
               <div className="flex gap-3 pt-2">
-                <button type="submit" className="flex-1 bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold py-3 rounded-lg transition uppercase text-xs shadow-md">🚀 Publicar y Anunciar</button>
+                <button type="submit" className="flex-1 bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold py-3 rounded-lg transition uppercase text-xs shadow-md">🚀 Publicar Incursión</button>
                 <button type="button" onClick={() => setActiveTab('events')} className="bg-slate-800 hover:bg-slate-700 text-slate-300 font-bold px-4 py-3 rounded-lg transition text-xs">Cancelar</button>
               </div>
             </form>
@@ -779,6 +827,7 @@ export default function App() {
           </section>
         )}
 
+        {/* 🛡️ PANEL DE ADMIN (Con gestión de tiradas de ruleta) */}
         {activeTab === 'admin' && currentUser.role === 'admin' && (
           <div className="space-y-8">
             <section className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-lg">
@@ -790,29 +839,41 @@ export default function App() {
             </section>
 
             <section className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-lg">
-              <h2 className="text-xl font-bold text-purple-400 mb-4 flex items-center gap-2"><Shield className="w-6 h-6" /> Gestión de Jugadores y Admins</h2>
+              <h2 className="text-xl font-bold text-purple-400 mb-4 flex items-center gap-2"><Shield className="w-6 h-6" /> Gestión de Jugadores (Monedas y Tiradas de Ruleta)</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {users.map(u => (
-                  <div key={u.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex items-center justify-between shadow-sm">
+                  <div key={u.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex flex-col justify-between shadow-sm gap-3">
                     <div>
                       <p className="font-bold text-sm text-white">{u.name}</p>
                       <p className="text-xs text-slate-500 font-mono">{u.email}</p>
                       <div className="mt-2 flex flex-wrap gap-2 items-center">
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${u.status === 'approved' ? 'bg-emerald-950 text-emerald-400' : 'bg-amber-950 text-amber-400'}`}>{u.status === 'approved' ? 'Aprobado' : 'Pendiente'}</span>
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${u.role === 'admin' ? 'bg-purple-950 text-purple-300' : 'bg-slate-800 text-slate-300'}`}>{u.role}</span>
-                        <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded font-mono">{u.coins || 0} Pts</span>
+                        <span className="text-[10px] bg-slate-800 text-yellow-400 px-2 py-0.5 rounded font-mono">{u.coins || 0} Pts</span>
+                        <span className="text-[10px] bg-indigo-950 text-indigo-300 px-2 py-0.5 rounded font-mono border border-indigo-800">🎰 {u.wheel_spins || 0} Tiradas</span>
                       </div>
                     </div>
-                    <div className="flex flex-col gap-2">
+                    <div className="flex flex-col gap-2 pt-2 border-t border-slate-900">
                       {u.status === 'pending' && (
-                        <button onClick={() => approveUser(u.id)} className="bg-emerald-600 hover:bg-emerald-500 text-xs px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 shadow-sm"><UserCheck className="w-3.5 h-3.5" /> Aprobar</button>
+                        <button onClick={() => approveUser(u.id)} className="bg-emerald-600 hover:bg-emerald-500 text-xs px-3 py-1.5 rounded-lg font-bold flex items-center justify-center gap-1 shadow-sm"><UserCheck className="w-3.5 h-3.5" /> Aprobar</button>
                       )}
                       {u.email !== 'antimanezekiel@gmail.com' && (
-                        <button onClick={() => toggleUserRole(u.id, u.role)} className="bg-purple-700 hover:bg-purple-600 text-xs px-2 py-1 rounded font-bold flex items-center justify-center gap-1 text-white shadow-sm"><UserCog className="w-3.5 h-3.5" /> {u.role === 'admin' ? 'Quitar' : 'Hacer Admin'}</button>
+                        <button onClick={() => toggleUserRole(u.id, u.role)} className="bg-purple-700 hover:bg-purple-600 text-xs px-2 py-1.5 rounded font-bold flex items-center justify-center gap-1 text-white shadow-sm"><UserCog className="w-3.5 h-3.5" /> {u.role === 'admin' ? 'Quitar Admin' : 'Hacer Admin'}</button>
                       )}
-                      <div className="flex gap-1">
-                        <button onClick={() => updateUserCoins(u.id, 50)} className="bg-yellow-600 hover:bg-yellow-500 text-xs px-2 py-1 rounded font-bold shadow-sm">+50</button>
-                        <button onClick={() => updateUserCoins(u.id, -50)} className="bg-slate-800 hover:bg-slate-700 text-xs px-2 py-1 rounded font-bold shadow-sm">-50</button>
+                      <div className="flex justify-between items-center gap-1 bg-slate-900 p-1.5 rounded-lg">
+                        <span className="text-[10px] text-slate-400 font-semibold pl-1">Monedas:</span>
+                        <div className="flex gap-1">
+                          <button onClick={() => updateUserCoins(u.id, 50)} className="bg-yellow-600 hover:bg-yellow-500 text-[10px] px-2 py-1 rounded font-bold shadow-sm">+50</button>
+                          <button onClick={() => updateUserCoins(u.id, -50)} className="bg-slate-800 hover:bg-slate-700 text-[10px] px-2 py-1 rounded font-bold shadow-sm">-50</button>
+                        </div>
+                      </div>
+                      <div className="flex justify-between items-center gap-1 bg-slate-900 p-1.5 rounded-lg">
+                        <span className="text-[10px] text-indigo-300 font-semibold pl-1">Tiradas Ruleta:</span>
+                        <div className="flex gap-1">
+                          <button onClick={() => updateUserSpins(u.id, 1)} className="bg-indigo-600 hover:bg-indigo-500 text-[10px] px-2.5 py-1 rounded font-bold shadow-sm text-white">+1</button>
+                          <button onClick={() => updateUserSpins(u.id, 3)} className="bg-indigo-600 hover:bg-indigo-500 text-[10px] px-2.5 py-1 rounded font-bold shadow-sm text-white">+3</button>
+                          <button onClick={() => updateUserSpins(u.id, -1)} className="bg-slate-800 hover:bg-slate-700 text-[10px] px-2 py-1 rounded font-bold shadow-sm text-white">-1</button>
+                        </div>
                       </div>
                     </div>
                   </div>
@@ -842,7 +903,7 @@ export default function App() {
                 </div>
                 <div>
                   <label className="text-[10px] text-slate-400 uppercase font-semibold">Peso / Probabilidad (Ej. 10)</label>
-                  <input type="number" required min="1" placeholder="10" value={newWheelPrize.weight} onChange={e => setNewWheelPrize({ ...newWheelPrize, weight: e.target.value })} className="w-full mt-1 bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-yellow-400" />
+                  <input type="number" required min="1" placeholder="10" value={newWheelPrize.weight} onChange={e => setNewWheelPrize({ ...newWheelPrize, weight: e.target.value })} className="w-full mt-1 bg-slate-900 border border-slate-800 rounded-lg p-3 text-xs text-white focus:outline-none focus:border-yellow-400" />
                 </div>
                 <div className="sm:col-span-2 lg:col-span-4">
                   <button type="submit" className="w-full bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold py-2.5 rounded-lg text-xs uppercase shadow-md">Agregar Premio a Ruleta</button>
