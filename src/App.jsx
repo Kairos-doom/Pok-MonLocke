@@ -31,7 +31,6 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState('shop');
   
-  // Estados para las 3 Ruletas (objects, gym, sections)
   const [selectedWheelType, setSelectedWheelType] = useState('objects');
   const [spinning, setSpinning] = useState(false);
   const [wheelResult, setWheelResult] = useState(null);
@@ -39,7 +38,6 @@ export default function App() {
   const [editingCardId, setEditingCardId] = useState(null);
   const [newCard, setNewCard] = useState({ title: '', type: 'Pokémon', effect: '', price: 100, stock: 5, imageUrl: '' });
 
-  // Nuevo premio de ruleta con tipo y peso
   const [newWheelPrize, setNewWheelPrize] = useState({ name: '', coins: 50, wheelType: 'objects', weight: 10 });
   const [newTrade, setNewTrade] = useState({ offeredPokemon: '', level: 50, requestedItem: '' });
 
@@ -49,13 +47,15 @@ export default function App() {
   useEffect(() => {
     fetchData();
 
+    // Actualizador en tiempo real de los temporizadores
     const timerInterval = setInterval(() => {
       setCurrentTime(Date.now());
     }, 1000);
 
+    // ⚡ CANAL REALTIME GLOBAL PARA ACTUALIZACIÓN INSTANTÁNEA SIN REINICIAR
     const channel = supabase
-      .channel('schema-db-changes')
-      .on('postgres_changes', { event: '*', schema: 'public' }, () => {
+      .channel('realtime-all-changes')
+      .on('postgres_changes', { event: '*', schema: 'public' }, (payload) => {
         fetchData();
       })
       .subscribe();
@@ -65,6 +65,16 @@ export default function App() {
       supabase.removeChannel(channel);
     };
   }, []);
+
+  // Mantiene al usuario actual con los datos más recientes (monedas, rol, etc.) de manera fluida
+  useEffect(() => {
+    if (currentUser) {
+      const updatedSelf = users.find(u => u.id === currentUser.id);
+      if (updatedSelf) {
+        setCurrentUser(updatedSelf);
+      }
+    }
+  }, [users]);
 
   async function fetchData() {
     try {
@@ -170,7 +180,6 @@ export default function App() {
     if (card.stock <= 0) return alert("❌ Carta agotada.");
 
     const newCoins = currentUser.coins - card.price;
-    setCurrentUser({ ...currentUser, coins: newCoins });
 
     await supabase.from('users').update({ coins: newCoins }).eq('id', currentUser.id);
     await supabase.from('cards').update({ stock: card.stock - 1 }).eq('id', card.id);
@@ -215,10 +224,6 @@ export default function App() {
 
     const newCoins = Math.max(0, (target.coins || 0) + amount);
     await supabase.from('users').update({ coins: newCoins }).eq('id', userId);
-
-    if (currentUser?.id === userId) {
-      setCurrentUser(prev => ({ ...prev, coins: newCoins }));
-    }
     fetchData();
   }
 
@@ -256,7 +261,6 @@ export default function App() {
     }
   }
 
-  // Ruleta: Agregar premio con peso y tipo
   async function handleAddWheelPrize(e) {
     e.preventDefault();
     if (!newWheelPrize.name) return;
@@ -270,7 +274,7 @@ export default function App() {
 
     setNewWheelPrize({ name: '', coins: 50, wheelType: 'objects', weight: 10 });
     fetchData();
-    alert("✨ ¡Premio agregado a la ruleta con éxito!");
+    alert("✨ ¡Premio agregado a la ruleta!");
   }
 
   async function handleDeleteWheelPrize(id) {
@@ -278,7 +282,6 @@ export default function App() {
     fetchData();
   }
 
-  // Intercambios
   async function handleCreateTrade(e) {
     e.preventDefault();
     if (!newTrade.offeredPokemon) return;
@@ -291,20 +294,14 @@ export default function App() {
     fetchData();
   }
 
-  // Aceptar intercambio y eliminarlo para que desaparezca correctamente
   async function handleAcceptTrade(tradeId) {
-    if (!confirm("¿Estás seguro de aceptar este intercambio? Se completará y eliminará de las ofertas activas.")) return;
+    if (!confirm("¿Aceptar este intercambio?")) return;
     
-    const { error } = await supabase.from('trades').delete().eq('id', tradeId);
-    if (error) {
-      alert("❌ Error al aceptar el intercambio: " + error.message);
-      return;
-    }
-    alert("✅ ¡Intercambio aceptado con éxito!");
+    await supabase.from('trades').delete().eq('id', tradeId);
+    alert("✅ ¡Intercambio aceptado!");
     fetchData();
   }
 
-  // Eventos
   async function handleCreateEvent(e) {
     e.preventDefault();
     if (!newEvent.title || !newEvent.durationMinutes) return alert("Completa los campos obligatorios.");
@@ -322,7 +319,7 @@ export default function App() {
     }
 
     setNewEvent({ title: '', description: '', imageUrl: '', durationMinutes: 60 });
-    alert("🚨 ¡Nuevo evento creado con éxito!");
+    alert("🚨 ¡Nuevo evento publicado en tiempo real!");
     setActiveTab('events');
     fetchData();
   }
@@ -334,7 +331,6 @@ export default function App() {
     }
   }
 
-  // Girar la ruleta seleccionada basándose en pesos (probabilidades)
   function spinWheel() {
     const currentPrizes = wheelPrizes.filter(p => (p.wheel_type || 'objects') === selectedWheelType);
     if (currentUser.coins < 20 || spinning || currentPrizes.length === 0) return;
@@ -344,7 +340,6 @@ export default function App() {
     updateUserCoins(currentUser.id, -20);
 
     setTimeout(() => {
-      // Cálculo basado en pesos (probabilidades personalizadas)
       const totalWeight = currentPrizes.reduce((sum, p) => sum + (Number(p.weight) || 10), 0);
       let randomNum = Math.random() * totalWeight;
       let selectedPrize = currentPrizes[0];
@@ -572,13 +567,11 @@ export default function App() {
           </section>
         )}
 
-        {/* 🎡 LAS 3 RULETAS CON SELECCIÓN */}
         {activeTab === 'wheel' && (
           <section className="max-w-md mx-auto text-center bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-2xl shadow-xl">
             <h2 className="text-2xl font-bold text-yellow-400 mb-2 flex items-center justify-center gap-2"><Dices className="w-6 h-6" /> Ruletas del Torneo</h2>
             <p className="text-xs text-slate-400 mb-4">Costo por giro: <span className="text-yellow-400 font-bold">20 Monedas</span></p>
 
-            {/* Selector de tipo de Ruleta */}
             <div className="grid grid-cols-3 gap-1.5 mb-6 bg-slate-950 p-1 rounded-xl border border-slate-800">
               <button onClick={() => setSelectedWheelType('objects')} className={`py-2 text-[11px] font-bold rounded-lg transition ${selectedWheelType === 'objects' ? 'bg-yellow-500 text-slate-950 shadow-md' : 'text-slate-400 hover:text-white'}`}>
                 📦 Objetos
@@ -608,7 +601,6 @@ export default function App() {
           </section>
         )}
 
-        {/* 🤝 INTERCAMBIOS (Al aceptar ahora se elimina correctamente) */}
         {activeTab === 'trades' && (
           <section className="grid grid-cols-1 md:grid-cols-3 gap-6">
             <div className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-lg">
@@ -652,13 +644,12 @@ export default function App() {
           </section>
         )}
 
-        {/* 📢 EVENTOS */}
         {activeTab === 'events' && (
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
               <div>
                 <h2 className="text-2xl font-black text-yellow-400 flex items-center gap-2"><Calendar className="w-6 h-6" /> Eventos Activos</h2>
-                <p className="text-xs text-slate-400 mt-1">Revisa los eventos especiales y temporizadores activos.</p>
+                <p className="text-xs text-slate-400 mt-1">Revisa los eventos especiales y temporizadores activos en tiempo real.</p>
               </div>
               {currentUser.role === 'admin' && (
                 <button onClick={() => setActiveTab('create-event')} className="bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold px-4 py-2 rounded-xl text-xs uppercase shadow-md flex items-center gap-2">
@@ -788,7 +779,6 @@ export default function App() {
           </section>
         )}
 
-        {/* 🛡️ PANEL DE ADMINISTRADOR CON GESTIÓN DE LAS 3 RULETAS Y PESOS/PROBABILIDADES */}
         {activeTab === 'admin' && currentUser.role === 'admin' && (
           <div className="space-y-8">
             <section className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-lg">
@@ -830,7 +820,6 @@ export default function App() {
               </div>
             </section>
 
-            {/* GESTIÓN DE LAS 3 RULETAS CON PROBABILIDADES Y PESOS */}
             <section className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-lg">
               <h2 className="text-xl font-bold text-yellow-400 mb-4 flex items-center gap-2"><Settings className="w-6 h-6" /> Configurar Premios y Probabilidades de las Ruletas</h2>
               
