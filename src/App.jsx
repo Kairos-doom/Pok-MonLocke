@@ -3,7 +3,7 @@ import { supabase } from './supabaseClient';
 import { 
   Shield, Coins, Sparkles, Mail, Dices, 
   ArrowLeftRight, PlusCircle, UserCheck, 
-  LogIn, Briefcase, CheckCircle, Trash2, Edit3, Settings, UserCog, Type, KeyRound, Calendar, Clock, Image as ImageIcon
+  LogIn, Briefcase, CheckCircle, Trash2, Edit3, Settings, UserCog, Type, KeyRound, Calendar, Clock, Skull, Award
 } from 'lucide-react';
 
 const ADMIN_MASTER_PASSWORD = "200358#";
@@ -21,6 +21,7 @@ export default function App() {
 
   const [isEditingName, setIsEditingName] = useState(false);
   const [newNameInput, setNewNameInput] = useState('');
+  const [newColorInput, setNewColorInput] = useState('#FACC15'); // Color por defecto (Amarillo)
 
   const [users, setUsers] = useState([]);
   const [cards, setCards] = useState([]);
@@ -28,6 +29,7 @@ export default function App() {
   const [trades, setTrades] = useState([]);
   const [wheelPrizes, setWheelPrizes] = useState([]);
   const [events, setEvents] = useState([]);
+  const [deaths, setDeaths] = useState([]);
 
   const [activeTab, setActiveTab] = useState('shop');
   
@@ -40,6 +42,9 @@ export default function App() {
 
   const [newWheelPrize, setNewWheelPrize] = useState({ name: '', coins: 50, wheelType: 'objects', weight: 10 });
   const [newTrade, setNewTrade] = useState({ offeredPokemon: '', level: 50, requestedItem: '' });
+
+  // Estado para registrar muertes
+  const [newDeath, setNewDeath] = useState({ pokemonName: '', level: '', cause: '' });
 
   const [newEvent, setNewEvent] = useState({ title: '', description: '', imageUrl: '', durationMinutes: 60 });
   const [currentTime, setCurrentTime] = useState(Date.now());
@@ -95,6 +100,9 @@ export default function App() {
 
       const { data: ev } = await supabase.from('events').select('*');
       if (ev) setEvents(ev);
+
+      const { data: d } = await supabase.from('deaths').select('*');
+      if (d) setDeaths(d);
     } catch (e) {
       console.error('Error al sincronizar:', e);
     }
@@ -112,7 +120,7 @@ export default function App() {
       return;
     }
 
-    const newUser = { email: formattedEmail, name: nameInput.trim(), role: 'player', status: 'pending', coins: 100, wheel_spins: 0 };
+    const newUser = { email: formattedEmail, name: nameInput.trim(), role: 'player', status: 'pending', coins: 100, wheel_spins: 0, name_color: '#FACC15' };
     const { data: created, error } = await supabase.from('users').insert([newUser]).select().single();
 
     if (error) {
@@ -139,7 +147,7 @@ export default function App() {
       const { data: updated } = await supabase.from('users').update({ role: 'admin', status: 'approved' }).eq('id', existingUser.id).select().single();
       setCurrentUser(updated || { ...existingUser, role: 'admin', status: 'approved' });
     } else {
-      const newAdmin = { email: formattedEmail, name: nameInput.trim() || 'Ezekiel (Admin)', role: 'admin', status: 'approved', coins: 999, wheel_spins: 10 };
+      const newAdmin = { email: formattedEmail, name: nameInput.trim() || 'Ezekiel (Admin)', role: 'admin', status: 'approved', coins: 999, wheel_spins: 10, name_color: '#A855F7' };
       const { data: created } = await supabase.from('users').insert([newAdmin]).select().single();
       setCurrentUser(created || newAdmin);
     }
@@ -153,11 +161,17 @@ export default function App() {
     if (!newNameInput.trim()) return alert("El apodo no puede estar vacío.");
 
     const updatedName = newNameInput.trim();
-    await supabase.from('users').update({ name: updatedName }).eq('id', currentUser.id);
+    await supabase.from('users').update({ name: updatedName, name_color: newColorInput }).eq('id', currentUser.id);
 
-    setCurrentUser(prev => ({ ...prev, name: updatedName }));
+    setCurrentUser(prev => ({ ...prev, name: updatedName, name_color: newColorInput }));
     setIsEditingName(false);
-    alert("✨ ¡Tu apodo ha sido actualizado con éxito!");
+    alert("✨ ¡Tu apodo y color han sido actualizados con éxito!");
+    fetchData();
+  }
+
+  // Admin: Cambiar color de cualquier usuario
+  async function handleUpdateUserColor(userId, color) {
+    await supabase.from('users').update({ name_color: color }).eq('id', userId);
     fetchData();
   }
 
@@ -224,7 +238,6 @@ export default function App() {
     fetchData();
   }
 
-  // Admin: Otorgar o modificar tiradas de ruleta a un usuario
   async function updateUserSpins(userId, amount) {
     const target = users.find(u => u.id === userId);
     if (!target) return;
@@ -232,6 +245,35 @@ export default function App() {
     const newSpins = Math.max(0, (target.wheel_spins || 0) + amount);
     await supabase.from('users').update({ wheel_spins: newSpins }).eq('id', userId);
     fetchData();
+  }
+
+  // Registrar Muerte de Pokémon personal
+  async function handleAddDeath(e) {
+    e.preventDefault();
+    if (!newDeath.pokemonName.trim()) return alert("Ingresa el nombre del Pokémon.");
+
+    const { error } = await supabase.from('deaths').insert([{
+      user_email: currentUser.email,
+      pokemon_name: newDeath.pokemonName.trim(),
+      level: Number(newDeath.level) || 0,
+      cause: newDeath.cause.trim() || 'Desconocida'
+    }]);
+
+    if (error) {
+      alert("❌ Error al registrar muerte: " + error.message);
+      return;
+    }
+
+    setNewDeath({ pokemonName: '', level: '', cause: '' });
+    alert("💀 ¡Muerte registrada en el Salón del Cementerio!");
+    fetchData();
+  }
+
+  async function handleDeleteDeath(deathId) {
+    if (confirm("¿Eliminar este registro de muerte?")) {
+      await supabase.from('deaths').delete().eq('id', deathId);
+      fetchData();
+    }
   }
 
   async function handleSaveCard(e) {
@@ -281,7 +323,7 @@ export default function App() {
 
     setNewWheelPrize({ name: '', coins: 50, wheelType: 'objects', weight: 10 });
     fetchData();
-    alert("✨ ¡Premio agregado a la ruleta!");
+    alert("✨ ¡Premio agregado a la ruleta seleccionada!");
   }
 
   async function handleDeleteWheelPrize(id) {
@@ -289,48 +331,32 @@ export default function App() {
     fetchData();
   }
 
-  // Intercambios con límite de 1 por día basado estrictamente en el reloj del servidor (Base de datos)
   async function handleCreateTrade(e) {
     e.preventDefault();
     if (!newTrade.offeredPokemon) return;
 
-    // Consultar si este correo ya hizo un intercambio en las últimas 24 horas (reloj de servidor)
     const oneDayAgo = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const { data: userRecentTrades, error: checkError } = await supabase
+    const { data: userRecentTrades } = await supabase
       .from('trades')
       .select('*')
       .eq('user_email', currentUser.email)
       .gte('created_at', oneDayAgo);
 
-    if (checkError) {
-      console.error(checkError);
-    }
-
     if (userRecentTrades && userRecentTrades.length > 0) {
-      return alert("❌ Ya has realizado un intercambio en las últimas 24 horas. Solo se permite 1 intercambio por día por cuenta.");
+      return alert("❌ Ya has realizado un intercambio en las últimas 24 horas. Límite de 1 por día.");
     }
 
-    const { error } = await supabase.from('trades').insert([{
-      user_email: currentUser.email, 
-      offered_pokemon: newTrade.offeredPokemon, 
-      level: Number(newTrade.level), 
-      requested_item: newTrade.requestedItem, 
-      status: 'open'
+    await supabase.from('trades').insert([{
+      user_email: currentUser.email, offered_pokemon: newTrade.offeredPokemon, level: Number(newTrade.level), requested_item: newTrade.requestedItem, status: 'open'
     }]);
 
-    if (error) {
-      alert("❌ Error al publicar intercambio: " + error.message);
-      return;
-    }
-
     setNewTrade({ offeredPokemon: '', level: 50, requestedItem: '' });
-    alert("✨ ¡Intercambio publicado con éxito!");
+    alert("✨ ¡Intercambio publicado!");
     fetchData();
   }
 
   async function handleAcceptTrade(tradeId) {
     if (!confirm("¿Aceptar este intercambio?")) return;
-    
     await supabase.from('trades').delete().eq('id', tradeId);
     alert("✅ ¡Intercambio aceptado!");
     fetchData();
@@ -338,48 +364,42 @@ export default function App() {
 
   async function handleCreateEvent(e) {
     e.preventDefault();
-    if (!newEvent.title || !newEvent.durationMinutes) return alert("Completa los campos obligatorios.");
+    if (!newEvent.title || !newEvent.durationMinutes) return alert("Completa los campos.");
 
     const durationMs = Number(newEvent.durationMinutes) * 60 * 1000;
     const expiresAt = new Date(Date.now() + durationMs).toISOString();
 
-    const { error } = await supabase.from('events').insert([{
+    await supabase.from('events').insert([{
       title: newEvent.title, description: newEvent.description, image_url: newEvent.imageUrl || '', duration_minutes: Number(newEvent.durationMinutes), expires_at: expiresAt
     }]);
 
-    if (error) {
-      alert("❌ Error al crear la incursión: " + error.message);
-      return;
-    }
-
     setNewEvent({ title: '', description: '', imageUrl: '', durationMinutes: 60 });
-    alert("🚨 ¡Nueva incursión publicada en tiempo real!");
+    alert("🚨 ¡Incursión publicada!");
     setActiveTab('events');
     fetchData();
   }
 
   async function handleDeleteEvent(eventId) {
-    if (confirm("¿Finalizar y eliminar esta incursión?")) {
+    if (confirm("¿Eliminar incursión?")) {
       await supabase.from('events').delete().eq('id', eventId);
       fetchData();
     }
   }
 
-  // Girar ruleta descontando una tirada otorgada por el admin
-  async function spinWheel() {
+  function spinWheel() {
     const currentPrizes = wheelPrizes.filter(p => (p.wheel_type || 'objects') === selectedWheelType);
     if ((currentUser.wheel_spins || 0) <= 0) {
-      return alert("❌ No te quedan tiradas disponibles. Pídele un paquete de tiradas a un Administrador.");
+      return alert("❌ No te quedan tiradas. Pídele un paquete a un Administrador.");
     }
     if (spinning || currentPrizes.length === 0) return;
 
     setSpinning(true);
     setWheelResult(null);
 
-    // Descontar 1 tirada al usuario actual
     const remainingSpins = currentUser.wheel_spins - 1;
-    await supabase.from('users').update({ wheel_spins: remainingSpins }).eq('id', currentUser.id);
-    setCurrentUser(prev => ({ ...prev, wheel_spins: remainingSpins }));
+    supabase.from('users').update({ wheel_spins: remainingSpins }).eq('id', currentUser.id).then(() => {
+      setCurrentUser(prev => ({ ...prev, wheel_spins: remainingSpins }));
+    });
 
     setTimeout(() => {
       const totalWeight = currentPrizes.reduce((sum, p) => sum + (Number(p.weight) || 10), 0);
@@ -476,6 +496,18 @@ export default function App() {
 
   const myItems = inventory.filter(i => i.user_id === currentUser.id);
 
+  // Calcular ranking de muertes
+  const deathsByUser = users.map(u => {
+    const userDeaths = deaths.filter(d => d.user_email === u.email);
+    return {
+      name: u.name,
+      color: u.name_color || '#FACC15',
+      email: u.email,
+      count: userDeaths.length,
+      list: userDeaths
+    };
+  }).sort((a, b) => b.count - a.count);
+
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
       <header className="bg-slate-900 border-b border-slate-800 px-4 sm:px-6 py-4 flex flex-col md:flex-row items-center justify-between gap-4">
@@ -483,8 +515,8 @@ export default function App() {
           <span className="font-black text-2xl text-yellow-400 tracking-wider">{siteTitle}</span>
           
           <div className="flex items-center gap-2 bg-slate-950 px-3 py-1 rounded-lg border border-slate-800">
-            <span className="text-xs text-slate-300 font-bold">👤 {currentUser.name}</span>
-            <button onClick={() => { setNewNameInput(currentUser.name); setIsEditingName(!isEditingName); }} className="text-xs text-yellow-400 hover:underline font-semibold ml-1">Cambiar Nick</button>
+            <span className="text-xs font-bold" style={{ color: currentUser.name_color || '#FACC15' }}>👤 {currentUser.name}</span>
+            <button onClick={() => { setNewNameInput(currentUser.name); setNewColorInput(currentUser.name_color || '#FACC15'); setIsEditingName(!isEditingName); }} className="text-xs text-yellow-400 hover:underline font-semibold ml-1">Editar Perfil</button>
           </div>
 
           <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full uppercase border ${currentUser.role === 'admin' ? 'bg-purple-950 text-purple-300 border-purple-800' : 'bg-blue-950 text-blue-300 border-blue-800'}`}>
@@ -497,11 +529,14 @@ export default function App() {
           <button onClick={() => setActiveTab('inventory')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 ${activeTab === 'inventory' ? 'bg-yellow-500 text-slate-950 shadow-md' : 'bg-slate-800 hover:bg-slate-700'}`}>
             <Briefcase className="w-3.5 h-3.5" /> Mochila ({myItems.length})
           </button>
-          <button onClick={() => setActiveTab('wheel')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${activeTab === 'wheel' ? 'bg-yellow-500 text-slate-950 shadow-md' : 'bg-slate-800 hover:bg-slate-700'}`}>Ruletas (3)</button>
+          <button onClick={() => setActiveTab('wheel')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${activeTab === 'wheel' ? 'bg-yellow-500 text-slate-950 shadow-md' : 'bg-slate-800 hover:bg-slate-700'}`}>Ruletas</button>
           <button onClick={() => setActiveTab('trades')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition ${activeTab === 'trades' ? 'bg-yellow-500 text-slate-950 shadow-md' : 'bg-slate-800 hover:bg-slate-700'}`}>Intercambios</button>
           <button onClick={() => setActiveTab('events')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 relative ${activeTab === 'events' ? 'bg-yellow-500 text-slate-950 shadow-md' : 'bg-slate-800 hover:bg-slate-700'}`}>
             <Calendar className="w-3.5 h-3.5" /> Incursiones
             {events.length > 0 && <span className="absolute -top-1 -right-1 bg-red-500 text-white text-[9px] px-1.5 py-0.2 rounded-full animate-pulse">{events.length}</span>}
+          </button>
+          <button onClick={() => setActiveTab('graveyard')} className={`px-3 py-1.5 rounded-lg text-xs font-bold transition flex items-center gap-1 ${activeTab === 'graveyard' ? 'bg-yellow-500 text-slate-950 shadow-md' : 'bg-slate-800 hover:bg-slate-700'}`}>
+            <Skull className="w-3.5 h-3.5" /> Cementerio ({deaths.length})
           </button>
           {currentUser.role === 'admin' && (
             <>
@@ -520,11 +555,14 @@ export default function App() {
         </div>
       </header>
 
+      {/* MODAL PARA CAMBIAR NICK Y COLOR */}
       {isEditingName && (
         <div className="bg-slate-900 border-b border-yellow-500/30 px-4 sm:px-6 py-3 flex items-center justify-center">
-          <form onSubmit={handleUpdateNickname} className="flex flex-wrap items-center justify-center gap-2">
-            <span className="text-xs font-bold text-yellow-400">Nuevo Apodo:</span>
+          <form onSubmit={handleUpdateNickname} className="flex flex-wrap items-center justify-center gap-3">
+            <span className="text-xs font-bold text-yellow-400">Apodo:</span>
             <input type="text" required value={newNameInput} onChange={e => setNewNameInput(e.target.value)} className="bg-slate-950 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-yellow-400" />
+            <span className="text-xs font-bold text-yellow-400">Color:</span>
+            <input type="color" value={newColorInput} onChange={e => setNewColorInput(e.target.value)} className="w-8 h-8 rounded border border-slate-700 bg-slate-950 cursor-pointer" />
             <button type="submit" className="bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold text-xs px-3 py-1.5 rounded-lg transition">Guardar</button>
             <button type="button" onClick={() => setIsEditingName(false)} className="bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs px-3 py-1.5 rounded-lg transition">Cancelar</button>
           </form>
@@ -610,13 +648,12 @@ export default function App() {
           </section>
         )}
 
-        {/* 🎡 RULETAS CON CONTROL DE TIRADAS DISPONIBLES */}
+        {/* 🎡 RULETAS */}
         {activeTab === 'wheel' && (
           <section className="max-w-md mx-auto text-center bg-slate-900 border border-slate-800 p-6 sm:p-8 rounded-2xl shadow-xl">
             <h2 className="text-2xl font-bold text-yellow-400 mb-2 flex items-center justify-center gap-2"><Dices className="w-6 h-6" /> Ruletas del Torneo</h2>
             <div className="bg-slate-950 border border-yellow-500/30 p-3 rounded-xl mb-4">
               <p className="text-xs text-slate-300">Tiradas Disponibles: <span className="text-yellow-400 font-bold text-base">{currentUser.wheel_spins || 0}</span></p>
-              <p className="text-[10px] text-slate-500 mt-0.5">Pídele más tiradas a un administrador si se te agotaron.</p>
             </div>
 
             <div className="grid grid-cols-3 gap-1.5 mb-6 bg-slate-950 p-1 rounded-xl border border-slate-800">
@@ -691,7 +728,69 @@ export default function App() {
           </section>
         )}
 
-        {/* 🚨 INCURSIONES (Antes Eventos) */}
+        {/* 💀 CEMENTERIO / REGISTRO DE MUERTES Y RANKING */}
+        {activeTab === 'graveyard' && (
+          <div className="space-y-8">
+            <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl max-w-xl mx-auto">
+              <h2 className="text-xl font-bold text-red-400 mb-2 flex items-center gap-2"><Skull className="w-6 h-6" /> Registrar Muerte de Pokémon</h2>
+              <p className="text-xs text-slate-400 mb-4">Anota las bajas de tu equipo para que queden registradas permanentemente.</p>
+              
+              <form onSubmit={handleAddDeath} className="space-y-4">
+                <div>
+                  <label className="text-xs text-slate-400 uppercase font-semibold">Pokémon / Mote</label>
+                  <input type="text" required placeholder="Ej. Charizard (Sparky)" value={newDeath.pokemonName} onChange={e => setNewDeath({ ...newDeath, pokemonName: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-red-500" />
+                </div>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="text-xs text-slate-400 uppercase font-semibold">Nivel</label>
+                    <input type="number" placeholder="45" value={newDeath.level} onChange={e => setNewDeath({ ...newDeath, level: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-red-500" />
+                  </div>
+                  <div>
+                    <label className="text-xs text-slate-400 uppercase font-semibold">Causa de Muerte</label>
+                    <input type="text" placeholder="Ej. Golpe Crítico de Garchomp" value={newDeath.cause} onChange={e => setNewDeath({ ...newDeath, cause: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-red-500" />
+                  </div>
+                </div>
+                <button type="submit" className="w-full bg-red-600 hover:bg-red-500 text-white font-bold py-3 rounded-lg transition uppercase text-xs shadow-md">💀 Registrar Caído</button>
+              </form>
+            </div>
+
+            {/* TABLA DE CLASIFICACIÓN / RANKING DE MUERTES */}
+            <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl shadow-xl">
+              <h2 className="text-xl font-bold text-yellow-400 mb-4 flex items-center gap-2"><Award className="w-6 h-6" /> Salón del Cementerio (Ranking de Muertes)</h2>
+              
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+                {deathsByUser.map((entry, idx) => (
+                  <div key={entry.email} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex flex-col justify-between shadow-inner">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-xs font-mono text-slate-500">#{idx + 1}</span>
+                      <span className="text-xs font-bold bg-red-950/60 text-red-400 px-2 py-0.5 rounded border border-red-900">💀 {entry.count} Muertes</span>
+                    </div>
+                    <h3 className="font-bold text-lg" style={{ color: entry.color }}>{entry.name}</h3>
+                    
+                    <div className="mt-4 space-y-2 max-h-40 overflow-y-auto pr-1">
+                      {entry.list.length === 0 ? (
+                        <p className="text-[11px] text-slate-500 italic">Sin bajas registradas.</p>
+                      ) : (
+                        entry.list.map(d => (
+                          <div key={d.id} className="bg-slate-900 p-2 rounded border border-slate-800 flex items-center justify-between text-xs">
+                            <div>
+                              <p className="font-bold text-white">{d.pokemon_name} <span className="text-[10px] text-slate-400">(Nv. {d.level})</span></p>
+                              <p className="text-[10px] text-slate-400 truncate max-w-[180px]">Causa: {d.cause}</p>
+                            </div>
+                            {d.user_email === currentUser.email && (
+                              <button onClick={() => handleDeleteDeath(d.id)} className="text-red-400 hover:text-red-300 p-1"><Trash2 className="w-3 h-3" /></button>
+                            )}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        )}
+
         {activeTab === 'events' && (
           <div className="space-y-6">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
@@ -773,7 +872,7 @@ export default function App() {
               </div>
               <div>
                 <label className="text-xs text-slate-400 uppercase font-semibold">Descripción / Reglas</label>
-                <textarea value={newEvent.description} onChange={e => setNewEvent({ ...newEvent, description: e.target.value })} placeholder="Explica las reglas de la incursión..." className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400 h-28" />
+                <textarea value={newEvent.description} onChange={e => setNewEvent({ ...newEvent, description: e.target.value })} placeholder="Explica las reglas..." className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400 h-28" />
               </div>
               <div className="flex gap-3 pt-2">
                 <button type="submit" className="flex-1 bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold py-3 rounded-lg transition uppercase text-xs shadow-md">🚀 Publicar Incursión</button>
@@ -803,7 +902,7 @@ export default function App() {
                 </div>
                 <div>
                   <label className="text-xs text-slate-400 uppercase font-semibold">Precio (Monedas)</label>
-                  <input type="number" required value={newCard.price} onChange={e => setNewCard({ ...newCard, price: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-sm text-white focus:outline-none focus:border-yellow-400" />
+                  <input type="number" required value={newCard.price} onChange={e => setNewCard({ ...newCard, price: e.target.value })} className="w-full mt-1 bg-slate-950 border border-slate-800 rounded-lg p-3 text-white focus:outline-none focus:border-yellow-400" />
                 </div>
               </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -827,7 +926,7 @@ export default function App() {
           </section>
         )}
 
-        {/* 🛡️ PANEL DE ADMIN (Con gestión de tiradas de ruleta) */}
+        {/* 🛡️ PANEL DE ADMIN */}
         {activeTab === 'admin' && currentUser.role === 'admin' && (
           <div className="space-y-8">
             <section className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-lg">
@@ -839,13 +938,16 @@ export default function App() {
             </section>
 
             <section className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-lg">
-              <h2 className="text-xl font-bold text-purple-400 mb-4 flex items-center gap-2"><Shield className="w-6 h-6" /> Gestión de Jugadores (Monedas y Tiradas de Ruleta)</h2>
+              <h2 className="text-xl font-bold text-purple-400 mb-4 flex items-center gap-2"><Shield className="w-6 h-6" /> Gestión de Jugadores (Colores, Monedas y Tiradas)</h2>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 {users.map(u => (
                   <div key={u.id} className="bg-slate-950 border border-slate-800 p-4 rounded-xl flex flex-col justify-between shadow-sm gap-3">
                     <div>
-                      <p className="font-bold text-sm text-white">{u.name}</p>
-                      <p className="text-xs text-slate-500 font-mono">{u.email}</p>
+                      <div className="flex items-center justify-between">
+                        <p className="font-bold text-sm" style={{ color: u.name_color || '#FACC15' }}>{u.name}</p>
+                        <input type="color" value={u.name_color || '#FACC15'} onChange={e => handleUpdateUserColor(u.id, e.target.value)} className="w-6 h-6 rounded border border-slate-700 bg-slate-900 cursor-pointer" title="Cambiar color de apodo" />
+                      </div>
+                      <p className="text-xs text-slate-500 font-mono mt-1">{u.email}</p>
                       <div className="mt-2 flex flex-wrap gap-2 items-center">
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${u.status === 'approved' ? 'bg-emerald-950 text-emerald-400' : 'bg-amber-950 text-amber-400'}`}>{u.status === 'approved' ? 'Aprobado' : 'Pendiente'}</span>
                         <span className={`text-[10px] font-bold px-2 py-0.5 rounded uppercase ${u.role === 'admin' ? 'bg-purple-950 text-purple-300' : 'bg-slate-800 text-slate-300'}`}>{u.role}</span>
@@ -872,7 +974,7 @@ export default function App() {
                         <div className="flex gap-1">
                           <button onClick={() => updateUserSpins(u.id, 1)} className="bg-indigo-600 hover:bg-indigo-500 text-[10px] px-2.5 py-1 rounded font-bold shadow-sm text-white">+1</button>
                           <button onClick={() => updateUserSpins(u.id, 3)} className="bg-indigo-600 hover:bg-indigo-500 text-[10px] px-2.5 py-1 rounded font-bold shadow-sm text-white">+3</button>
-                          <button onClick={() => updateUserSpins(u.id, -1)} className="bg-slate-800 hover:bg-slate-700 text-[10px] px-2 py-1 rounded font-bold shadow-sm text-white">-1</button>
+                          <button onClick={() => updateUserSpins(u.id, -1)} className="bg-slate-800 hover:bg-slate-700 text-[10px] px-2.5 py-1 rounded font-bold shadow-sm text-white">-1</button>
                         </div>
                       </div>
                     </div>
@@ -882,7 +984,7 @@ export default function App() {
             </section>
 
             <section className="bg-slate-900 border border-slate-800 p-6 rounded-xl shadow-lg">
-              <h2 className="text-xl font-bold text-yellow-400 mb-4 flex items-center gap-2"><Settings className="w-6 h-6" /> Configurar Premios y Probabilidades de las Ruletas</h2>
+              <h2 className="text-xl font-bold text-yellow-400 mb-4 flex items-center gap-2"><Settings className="w-6 h-6" /> Configurar Premios Independientes para las 3 Ruletas</h2>
               
               <form onSubmit={handleAddWheelPrize} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6 bg-slate-950 p-4 rounded-xl border border-slate-800">
                 <div>
@@ -902,11 +1004,11 @@ export default function App() {
                   <input type="number" required placeholder="50" value={newWheelPrize.coins} onChange={e => setNewWheelPrize({ ...newWheelPrize, coins: e.target.value })} className="w-full mt-1 bg-slate-900 border border-slate-800 rounded-lg p-2.5 text-xs text-white focus:outline-none focus:border-yellow-400" />
                 </div>
                 <div>
-                  <label className="text-[10px] text-slate-400 uppercase font-semibold">Peso / Probabilidad (Ej. 10)</label>
+                  <label className="text-[10px] text-slate-400 uppercase font-semibold">Peso / Probabilidad</label>
                   <input type="number" required min="1" placeholder="10" value={newWheelPrize.weight} onChange={e => setNewWheelPrize({ ...newWheelPrize, weight: e.target.value })} className="w-full mt-1 bg-slate-900 border border-slate-800 rounded-lg p-3 text-xs text-white focus:outline-none focus:border-yellow-400" />
                 </div>
                 <div className="sm:col-span-2 lg:col-span-4">
-                  <button type="submit" className="w-full bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold py-2.5 rounded-lg text-xs uppercase shadow-md">Agregar Premio a Ruleta</button>
+                  <button type="submit" className="w-full bg-yellow-500 hover:bg-yellow-400 text-slate-950 font-bold py-2.5 rounded-lg text-xs uppercase shadow-md">Agregar Premio a esta Ruleta</button>
                 </div>
               </form>
 
